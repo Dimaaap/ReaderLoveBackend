@@ -5,6 +5,7 @@ from entities.social_links.schema import (
     SocialLinkSchema,
     SocialLinkCreate,
     SocialLinkUpdate,
+    SocialLinkUpdatePartial,
 )
 from core.models.social_links import SocialLinks
 
@@ -54,6 +55,25 @@ async def update_social_link(
         return None
 
     for key, value in data.model_dump().items():
+        setattr(social_link, key, value)
+
+    await session.commit()
+    await session.refresh(social_link)
+
+    return SocialLinkSchema.model_validate(social_link)
+
+
+async def partial_update_social_link(
+    session: AsyncSession, id: int, data: SocialLinkUpdatePartial
+):
+    statement = select(SocialLinks).where(SocialLinks.id == id)
+    result = await session.execute(statement)
+    social_link = result.scalar_one_or_none()
+
+    if social_link is None:
+        return None
+
+    for key, value in data.model_dump(exclude_unset=True).items():
         setattr(social_link, key, value)
 
     await session.commit()

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+</head>
+<body>
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #dddddd; border-radius: 5px;">
+        <h2 style="color: #333333; text-align: center;">Підтвердження реєстрації</h2>
+        <p>Вітаємо, <strong>{{ username }}</strong>!</p>
+        <p>Ваш одноразовий код підтвердження (OTP):</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <span style="font-size: 24px; font-weight: bold; letter-spacing: 5px; background-color: #f4f4f4; padding: 10px 20px; border-radius: 5px; border: 1px dashed #333;">
+                {{ otp }}
+            </span>
+        </div>
+        <p style="color: #666666; font-size: 12px;">Цей код дійсний протягом 15 хвилин. Якщо ви не реєструвалися на нашому сайті, просто ігноруйте цей лист.</p>
+    </div>
+</body>
+</html>

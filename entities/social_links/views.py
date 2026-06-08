@@ -5,7 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.redis_config import redis_client
 from core.models import db_helper
-from entities.social_links.schema import SocialLinkSchema
+from entities.social_links.schema import (
+    SocialLinkSchema,
+    SocialLinkCreate,
+    SocialLinkUpdatePartial,
+)
 
 from . import crud
 
@@ -48,6 +52,57 @@ async def get_social_link_by_id(
     data = await crud.get_social_link_by_id(session, social_link_id)
 
     if data:
-        await redis_client.set(cache_key, SocialLinkSchema.model_validate(data), ex=300)
+        result = SocialLinkSchema.model_validate(data)
 
+        await redis_client.set(
+            cache_key,
+            result.model_dump_json(),
+            ex=300,
+        )
+
+        return result
     return data
+
+
+@router.post("/", response_model=SocialLinkCreate, status_code=201)
+async def create_social_link_view(
+    data: SocialLinkCreate,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    social_link = await crud.create_social_link(session, data)
+
+    await redis_client.delete("social_links:all")
+    return social_link
+
+
+@router.delete("/{social_link_id}")
+async def delete_social_link_by_id_view(
+    social_link_id: int,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    deleted = await crud.delete_social_link(session, social_link_id)
+
+    if deleted:
+        try:
+            await redis_client.delete(f"social_links:{social_link_id}")
+            await redis_client.delete("social_links:all")
+        except Exception as e:
+            return
+    return {"ok": True}
+
+
+@router.patch("/{social_link_id}", response_model=SocialLinkUpdatePartial)
+async def update_social_link_view(
+    social_link_id: int,
+    data: SocialLinkUpdatePartial,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    updated = await crud.partial_update_social_link(session, social_link_id, data)
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Social link is not found")
+
+    await redis_client.delete("social_links:all")
+    await redis_client.delete(f"social_links:{social_link_id}")
+
+    return updated
