@@ -1,3 +1,5 @@
+import os
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -14,6 +16,7 @@ from core.models import db_helper
 from core.redis_config import redis_client
 from entities.users.schema import SignupRequest, VerifyOTPRequest
 from . import service, crud
+from .service import is_token_blacklisted
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -56,6 +59,7 @@ async def send_otp(
 async def verify(
     data: VerifyOTPRequest,
     response: Response,
+    request: Request,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     try:
@@ -107,3 +111,53 @@ async def logout(request: Request, response: Response):
     )
 
     return {"message": "Logout successful"}
+
+
+@router.get("/me")
+async def get_current_user(
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+
+    access_token = request.cookies.get("access_token")
+    refresh_token = request.cookies.get("refresh_token")
+
+    user_id = None
+
+    if access_token:
+        is_blacklisted = await service.is_token_blacklisted(access_token, redis_client)
+        if not is_blacklisted:
+            user_id = service.try_get_user_id_from_token(
+                access_token, expected_type="access"
+            )
+
+    if not user_id:
+        if not refresh_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+            )
+
+        is_refresh_blacklisted = await service.is_token_blacklisted(
+            refresh_token, redis_client
+        )
+        if is_refresh_blacklisted:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Session revoked"
+            )
+
+        try:
+            user_id = await service.refresh_tokens(refresh_token, response)
+        except HTTPException:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired",
+            )
+
+    user = await crud.get_user_by_id(session, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
+
+    return {"id": user.id, "email": user.email, "username": user.username}
