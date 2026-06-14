@@ -5,7 +5,7 @@ import os
 from jwt import ExpiredSignatureError, InvalidTokenError
 from pwdlib import PasswordHash
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import HTTPException, status, Request, Response
+from fastapi import HTTPException, status, Response
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from jose import jwt, JWTError
 
@@ -142,9 +142,6 @@ async def is_token_blacklisted(token: str, redis_client) -> bool:
 
 
 def get_user_id_from_token(token: str, expected_type: str = "access") -> str:
-    """
-    Декодує токен, перевіряє його тип (access/refresh) та повертає user_id.
-    """
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
@@ -188,41 +185,6 @@ def try_get_user_id_from_token(token: str, expected_type: str = "access") -> str
     return user_id
 
 
-def get_tokens_from_request(request: Request) -> tuple[str, str]:
-    access_token = request.cookies.get("access_token")
-    refresh_token = request.cookies.get("refresh_token")
-
-    return access_token, refresh_token
-
-
-async def write_new_token_pairs_to_cookies(token: str, response: Response):
-    user_id = get_user_id_from_token(token, expected_type="refresh")
-    print(f"USER ID: {user_id}")
-
-    new_access, new_refresh = generate_auth_tokens(user_id)
-    print(f"new tokens: {new_access, new_refresh}")
-
-    response.set_cookie(
-        key="access_token",
-        value=new_access,
-        httponly=True,
-        samesite="lax",
-        max_age=int(os.getenv("ACCESS_EXPIRED_MINUTES", 15)) * 60,
-        secure=False,
-    )
-
-    response.set_cookie(
-        key="refresh_token",
-        value=new_refresh,
-        httponly=True,
-        max_age=int(os.getenv("REFRESH_EXPIRED_DAYS", 7)) * 24 * 60 * 60,
-        samesite="lax",
-        secure=False,
-    )
-
-    return user_id
-
-
 def set_auth_cookies(
     response: Response,
     access_token: str,
@@ -244,6 +206,16 @@ def set_auth_cookies(
         samesite="lax",
         secure=False,
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+    )
+
+
+def delete_auth_cookies(response: Response) -> None:
+    response.delete_cookie(
+        key="access_token", httponly=True, samesite="lax", secure=False
+    )
+
+    response.delete_cookie(
+        key="refresh_token", httponly=True, samesite="lax", secure=False
     )
 
 

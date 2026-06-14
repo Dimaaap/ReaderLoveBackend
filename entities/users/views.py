@@ -1,5 +1,3 @@
-import os
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -16,7 +14,6 @@ from core.models import db_helper
 from core.redis_config import redis_client
 from entities.users.schema import SignupRequest, VerifyOTPRequest
 from . import service, crud
-from .service import is_token_blacklisted
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -59,7 +56,6 @@ async def send_otp(
 async def verify(
     data: VerifyOTPRequest,
     response: Response,
-    request: Request,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     try:
@@ -69,23 +65,7 @@ async def verify(
 
         access_token, refresh_token = service.generate_auth_tokens(user.id)
 
-        response.set_cookie(
-            key="access_token",
-            value=access_token,
-            httponly=True,
-            max_age=15 * 60,
-            samesite="lax",
-            secure=False,
-        )
-
-        response.set_cookie(
-            key="refresh_token",
-            value=refresh_token,
-            httponly=True,
-            max_age=7 * 24 * 60 * 60,
-            samesite="lax",
-            secure=False,
-        )
+        service.set_auth_cookies(response, access_token, refresh_token)
 
         return {"message": "verified"}
     except ValueError as e:
@@ -102,13 +82,7 @@ async def logout(request: Request, response: Response):
     if refresh_token:
         await service.add_token_to_blacklist(refresh_token, redis_client)
 
-    response.delete_cookie(
-        key="access_token", httponly=True, samesite="lax", secure=False
-    )
-
-    response.delete_cookie(
-        key="refresh_token", httponly=True, samesite="lax", secure=False
-    )
+    service.delete_auth_cookies(response)
 
     return {"message": "Logout successful"}
 
