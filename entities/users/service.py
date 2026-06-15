@@ -227,3 +227,21 @@ async def refresh_tokens(refresh_token: str, response: Response):
     set_auth_cookies(response, access_token=new_access, refresh_token=new_refresh)
 
     return user_id
+
+
+async def authenticate_user(data: SignupRequest, session: AsyncSession) -> User:
+    user = await crud.get_user_by_email(session, str(data.email))
+
+    invalid_credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Неправильний email або пароль"
+    )
+
+    if not user:
+        raise invalid_credentials_exception
+
+    is_password_correct = password_context.verify(data.password, user.password_hash)
+
+    if not is_password_correct:
+        raise invalid_credentials_exception
+
+    return user

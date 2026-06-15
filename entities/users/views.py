@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import db_helper
 from core.redis_config import redis_client
-from entities.users.schema import SignupRequest, VerifyOTPRequest
+from entities.users.schema import SignupRequest, VerifyOTPRequest, LoginSchema
 from . import service, crud
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -85,6 +85,23 @@ async def logout(request: Request, response: Response):
     service.delete_auth_cookies(response)
 
     return {"message": "Logout successful"}
+
+
+@router.post("/login")
+async def login(
+    data: LoginSchema,
+    response: Response,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    user = await service.authenticate_user(data, session)
+
+    access_token, refresh_token = service.generate_auth_tokens(user.id)
+    service.set_auth_cookies(response, access_token, refresh_token)
+
+    return {
+        "message": "Login successful",
+        "user": {"id": user.id, "email": user.email, "username": user.username},
+    }
 
 
 @router.get("/me")

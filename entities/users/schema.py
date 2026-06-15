@@ -42,3 +42,8 @@ class SignupRequest(BaseModel):
 class VerifyOTPRequest(BaseModel):
     email: EmailStr
     otp: str
+
+
+class LoginSchema(BaseModel):
+    email: EmailStr
+    password: str
