@@ -1,3 +1,6 @@
+import os
+import httpx
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -6,13 +9,20 @@ from fastapi import (
     Request,
     BackgroundTasks,
     status,
+    Query,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import RedirectResponse
 
 from core.models import db_helper
 from core.redis_config import redis_client
-from entities.users.schema import SignupRequest, VerifyOTPRequest, LoginSchema
+from entities.users.schema import (
+    SignupRequest,
+    VerifyOTPRequest,
+    LoginSchema,
+    GoogleSignupRequest,
+)
 from . import service, crud
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -152,3 +162,84 @@ async def get_current_user(
         )
 
     return {"id": user.id, "email": user.email, "username": user.username}
+
+
+@router.get("/google/callback")
+async def google_callback(
+    response: Response,
+    code: str = Query(None),
+    error: str = Query(None),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    print(code)
+    if not code:
+        print("here")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Code not provided by Google",
+        )
+
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+        "redirect_uri": os.getenv("GOOGLE_REDIRECT_URI"),
+        "grant_type": "authorization_code",
+    }
+
+    async with httpx.AsyncClient() as client:
+        token_res = await client.post(token_url, data=data)
+        if token_res.status_code != 200:
+            print("Google Token Error:", token_res.text)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Unauthorized"
+            )
+
+        tokens = token_res.json()
+        access_token = tokens.get("access_token")
+
+        user_info_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        user_res = await client.get(user_info_url, headers=headers)
+
+        if user_res.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Unauthorized"
+            )
+
+        user_info = user_res.json()
+
+        email = user_info.get("email")
+        username = user_info.get("name")
+        data = {
+            "email": email,
+            "username": username,
+        }
+
+        try:
+            user = await service.register_user_without_otp(
+                GoogleSignupRequest.model_validate(data), session
+            )
+            await crud.verify_user(session, user)
+        except IntegrityError as e:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=e.__notes__[0]
+            )
+
+        frontend_redirect_url = "http://localhost:3000/"
+        redirect_response = RedirectResponse(url=frontend_redirect_url)
+
+        redirect_response.set_cookie(
+            key="email",
+            value=email,
+            httponly=False,
+            samesite="lax",
+            secure=False,
+        )
+        redirect_response.set_cookie(
+            key="username", value=username, httponly=False, samesite="lax", secure=False
+        )
+
+        return redirect_response

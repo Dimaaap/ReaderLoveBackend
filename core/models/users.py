@@ -15,6 +15,12 @@ class UserRole(str, Enum):
     ADMIN = "admin"
 
 
+class RegisterWays(str, Enum):
+    SITE = "site"
+    GOOGLE = "google"
+    GITHUB = "github"
+
+
 class User(Base):
     id: Mapped[str] = mapped_column(
         String(int(os.getenv("NANOID_KEY_SIZE"))),
@@ -26,7 +32,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(
         String(255), unique=True, nullable=False, index=True
     )
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=True)
 
     date_joined: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -41,6 +47,13 @@ class User(Base):
 
     is_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false(), nullable=False
+    )
+
+    register_way: Mapped[RegisterWays] = mapped_column(
+        SqlEnum(RegisterWays, values_callable=lambda enum: [e.value for e in enum]),
+        default=RegisterWays.SITE,
+        server_default=RegisterWays.SITE.value,
+        nullable=False,
     )
 
     def __str__(self) -> str:

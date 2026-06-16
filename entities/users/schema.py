@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
-from core.models.users import UserRole
+from core.models.users import UserRole, RegisterWays
 from utils.custom_validators.nanoid_string_validator import NanoIDString
 
 
@@ -15,7 +15,8 @@ class UserBase(BaseModel):
 
 
 class CreateUser(UserBase):
-    password_hash: str
+    password_hash: str | None = None
+    register_way: RegisterWays = RegisterWays.SITE
 
 
 class UpdateUser(CreateUser): ...
@@ -37,6 +38,11 @@ class SignupRequest(BaseModel):
     username: str
     email: EmailStr
     password: str
+
+
+class GoogleSignupRequest(BaseModel):
+    username: str
+    email: EmailStr
 
 
 class VerifyOTPRequest(BaseModel):

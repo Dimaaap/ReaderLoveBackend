@@ -9,10 +9,11 @@ from fastapi import HTTPException, status, Response
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from jose import jwt, JWTError
 
+from core.models.users import RegisterWays
 from custom_errors.user_existing_error import UserExistingError
 from utils.otp import generate_random_otp
 from . import crud
-from .schema import SignupRequest, CreateUser
+from .schema import SignupRequest, CreateUser, GoogleSignupRequest
 from core.models import User
 
 password_context = PasswordHash.recommended()
@@ -114,6 +115,25 @@ async def register_user(data: SignupRequest, session: AsyncSession, redis_client
     otp = generate_random_otp()
     await redis_client.set(f"otp:{user.email}", otp, ex=300)
     return user, otp
+
+
+async def register_user_without_otp(data: GoogleSignupRequest, session: AsyncSession):
+    existing = await crud.get_user_by_email(session, str(data.email))
+
+    if existing:
+        raise UserExistingError()
+
+    hashed = None
+    register_way = RegisterWays.GOOGLE
+    create_user_data = {
+        "username": data.username,
+        "email": data.email,
+        "password_hash": hashed,
+        "register_way": register_way,
+    }
+
+    user = await crud.create_user(session, CreateUser.model_validate(create_user_data))
+    return user
 
 
 async def add_token_to_blacklist(token: str, redis_client):
