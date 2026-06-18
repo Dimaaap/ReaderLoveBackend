@@ -4,10 +4,12 @@ import os
 
 from jwt import ExpiredSignatureError, InvalidTokenError
 from pwdlib import PasswordHash
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status, Response
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from jose import jwt, JWTError
+from starlette.responses import RedirectResponse
 
 from core.models.users import RegisterWays
 from custom_errors.user_existing_error import UserExistingError
@@ -117,14 +119,15 @@ async def register_user(data: SignupRequest, session: AsyncSession, redis_client
     return user, otp
 
 
-async def register_user_without_otp(data: GoogleSignupRequest, session: AsyncSession):
+async def register_user_without_otp(
+    data: GoogleSignupRequest, session: AsyncSession, register_way
+):
     existing = await crud.get_user_by_email(session, str(data.email))
 
     if existing:
         raise UserExistingError()
 
     hashed = None
-    register_way = RegisterWays.GOOGLE
     create_user_data = {
         "username": data.username,
         "email": data.email,
@@ -206,9 +209,7 @@ def try_get_user_id_from_token(token: str, expected_type: str = "access") -> str
 
 
 def set_auth_cookies(
-    response: Response,
-    access_token: str,
-    refresh_token: str,
+    response: Response, access_token: str, refresh_token: str, path: str = None
 ) -> None:
     response.set_cookie(
         key="access_token",
@@ -225,6 +226,7 @@ def set_auth_cookies(
         httponly=True,
         samesite="lax",
         secure=False,
+        path=path if path else "/",
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
     )
 
@@ -265,3 +267,159 @@ async def authenticate_user(data: SignupRequest, session: AsyncSession) -> User:
         raise invalid_credentials_exception
 
     return user
+
+
+async def add_github_email(client, email, user_headers: dict):
+    emails_res = await client.get(
+        "https://api.github.com/user/emails",
+        headers=user_headers,
+    )
+
+    if emails_res.status_code == 200:
+        email_list = emails_res.json()
+
+        for e in email_list:
+            if e.get("primary") and e.get("verified"):
+                email = e.get("email")
+                break
+        if not email and email_list:
+            email = email_list[0].get("email")
+    return email
+
+
+async def google_response(client, token_url: str, data: dict, session: AsyncSession):
+    token_res = await client.post(token_url, data=data)
+
+    if token_res.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Unauthorized"
+        )
+
+    tokens = token_res.json()
+    access_token = tokens.get("access_token")
+
+    user_info_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    user_res = await client.get(user_info_url, headers=headers)
+
+    if user_res.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Unauthorized"
+        )
+    user_info = user_res.json()
+
+    email = user_info.get("email")
+    username = user_info.get("name")
+    data = {
+        "email": email,
+        "username": username,
+    }
+
+    return await register_user_with_google(data, session)
+
+
+async def github_response(
+    client, token_url: str, data: dict, headers: dict, session: AsyncSession
+):
+    token_res = await client.post(token_url, data=data, headers=headers)
+
+    if token_res.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Github auth failed"
+        )
+
+    tokens = token_res.json()
+    github_access_token = tokens.get("access_token")
+
+    if not github_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to get Github access token",
+        )
+
+    user_headers = {
+        "Authorization": f"token {github_access_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+
+    user_res = await client.get("https://api.github.com/user", headers=user_headers)
+
+    if user_res.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to get GitHub info"
+        )
+
+    user_info = user_res.json()
+    username = user_info.get("login")
+    email = user_info.get("email")
+
+    if not email:
+        email = await add_github_email(client, email, user_headers)
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is required but not provided by Github",
+        )
+    user_data = {
+        "email": email,
+        "username": username,
+    }
+
+    return await register_user_with_github(user_data, session, email)
+
+
+async def register_user_with_github(user_data, session: AsyncSession, email: str):
+    access_token = refresh_token = None
+
+    try:
+        user = await register_user_without_otp(
+            GoogleSignupRequest.model_validate(user_data), session, RegisterWays.GITHUB
+        )
+
+        await crud.verify_user(session, user)
+        access_token, refresh_token = generate_auth_tokens(user.id)
+
+    except IntegrityError:
+
+        user = await crud.get_user_by_id(session, email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database error",
+            )
+    frontend_redirect_url = "http://localhost:3000/"
+    redirect_response = RedirectResponse(url=frontend_redirect_url)
+
+    set_auth_cookies(
+        redirect_response, access_token, refresh_token, path="/auth/refresh"
+    )
+    redirect_response.set_cookie(
+        key="username",
+        value=user_data.get("username"),
+        httponly=False,
+        samesite="lax",
+        secure=False,
+    )
+
+    return redirect_response
+
+
+async def register_user_with_google(data, session: AsyncSession):
+    try:
+        user = await register_user_without_otp(
+            GoogleSignupRequest.model_validate(data), session, RegisterWays.GOOGLE
+        )
+
+        await crud.verify_user(session, user)
+        access_token, refresh_token = generate_auth_tokens(user.id)
+    except IntegrityError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=e.__notes__[0])
+
+    frontend_redirect_url = "http://localhost:3000/"
+    redirect_response = RedirectResponse(url=frontend_redirect_url)
+    if access_token and refresh_token:
+        set_auth_cookies(
+            redirect_response, access_token, refresh_token, path="/auth/refresh"
+        )
+
+    return redirect_response

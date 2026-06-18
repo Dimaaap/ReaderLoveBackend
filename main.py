@@ -8,6 +8,7 @@ from starlette.responses import JSONResponse
 
 from core.redis_config import redis_client
 from custom_errors.user_existing_error import UserExistingError
+from entities.users.exceptions import GitHubException
 from entities import router
 
 
@@ -38,6 +39,14 @@ app.add_middleware(
 async def user_existing_handler(request: Request, ext: UserExistingError):
     return JSONResponse(
         status_code=status.HTTP_409_CONFLICT, content={"detail": ext.message}
+    )
+
+
+@app.exception_handler(GitHubException)
+async def github_exception_handler(request: Request, exc: GitHubException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
     )
 
 

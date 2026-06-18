@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import RedirectResponse
 
 from core.models import db_helper
+from core.models.users import RegisterWays
 from core.redis_config import redis_client
 from entities.users.schema import (
     SignupRequest,
@@ -24,6 +25,7 @@ from entities.users.schema import (
     GoogleSignupRequest,
 )
 from . import service, crud
+from .exceptions import GitHubException
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -166,20 +168,16 @@ async def get_current_user(
 
 @router.get("/google/callback")
 async def google_callback(
-    response: Response,
     code: str = Query(None),
-    error: str = Query(None),
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-    print(code)
     if not code:
-        print("here")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Code not provided by Google",
         )
 
-    token_url = "https://oauth2.googleapis.com/token"
+    token_url = os.getenv("GOOGLE_TOKEN_URI")
     data = {
         "code": code,
         "client_id": os.getenv("GOOGLE_CLIENT_ID"),
@@ -189,57 +187,35 @@ async def google_callback(
     }
 
     async with httpx.AsyncClient() as client:
-        token_res = await client.post(token_url, data=data)
-        if token_res.status_code != 200:
-            print("Google Token Error:", token_res.text)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Unauthorized"
-            )
+        return await service.google_response(client, token_url, data, session)
 
-        tokens = token_res.json()
-        access_token = tokens.get("access_token")
 
-        user_info_url = "https://www.googleapis.com/oauth2/v2/userinfo"
-        headers = {"Authorization": f"Bearer {access_token}"}
-
-        user_res = await client.get(user_info_url, headers=headers)
-
-        if user_res.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Unauthorized"
-            )
-
-        user_info = user_res.json()
-
-        email = user_info.get("email")
-        username = user_info.get("name")
-        data = {
-            "email": email,
-            "username": username,
-        }
-
-        try:
-            user = await service.register_user_without_otp(
-                GoogleSignupRequest.model_validate(data), session
-            )
-            await crud.verify_user(session, user)
-        except IntegrityError as e:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=e.__notes__[0]
-            )
-
-        frontend_redirect_url = "http://localhost:3000/"
-        redirect_response = RedirectResponse(url=frontend_redirect_url)
-
-        redirect_response.set_cookie(
-            key="email",
-            value=email,
-            httponly=False,
-            samesite="lax",
-            secure=False,
-        )
-        redirect_response.set_cookie(
-            key="username", value=username, httponly=False, samesite="lax", secure=False
+@router.get("/github/callback")
+async def github_callback(
+    code: str = Query(None),
+    error: str = Query(None),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    if error:
+        raise GitHubException(
+            detail=f"Github error: {error}", status_code=status.HTTP_400_BAD_REQUEST
         )
 
-        return redirect_response
+    if not code:
+        raise GitHubException(
+            detail="Code is not provided by GitHub",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    token_url = os.getenv("GITHUB_TOKEN_URL")
+    data = {
+        "client_id": os.getenv("GITHUB_CLIENT_ID"),
+        "client_secret": os.getenv("GITHUB_CLIENT_SECRET"),
+        "code": code,
+        "redirect_uri": os.getenv("GITHUB_REDIRECT_URI"),
+    }
+
+    headers = {"Accept": "application/json"}
+
+    async with httpx.AsyncClient() as client:
+        return await service.github_response(client, token_url, data, headers, session)
