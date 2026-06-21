@@ -13,16 +13,15 @@ from fastapi import (
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.responses import RedirectResponse
 
 from core.models import db_helper
-from core.models.users import RegisterWays
 from core.redis_config import redis_client
 from entities.users.schema import (
     SignupRequest,
     VerifyOTPRequest,
     LoginSchema,
-    GoogleSignupRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
 )
 from . import service, crud
 from .exceptions import GitHubException
@@ -44,6 +43,56 @@ async def register(
         return {"message": "OTP send", "email": user.email}
     except IntegrityError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=e.__notes__[0])
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    data: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    print(data)
+    user_email = str(data.email)
+    user = await crud.get_user_by_email(session, user_email)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    reset_otp = service.generate_random_otp()
+    await redis_client.set(f"reset_otp:{user_email}", reset_otp, ex=300)
+
+    try:
+        background_tasks.add_task(
+            service.send_reset_password_email, user_email, user.username, reset_otp
+        )
+        return {"message": "Reset OTP send successfully", "email": user_email}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/reset-password")
+async def reset_password(
+    data: ResetPasswordRequest,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    print(data)
+    saved_otp = await redis_client.get(f"reset_otp:{data.email}")
+    if not saved_otp or saved_otp != data.otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired code"
+        )
+    try:
+        await service.update_user_password(session, str(data.email), data.new_password)
+        await redis_client.delete(f"reset_otp:{data.email}")
+
+        return {"message": "Password updated successfully"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update password",
+        )
 
 
 @router.post("/send-otp")

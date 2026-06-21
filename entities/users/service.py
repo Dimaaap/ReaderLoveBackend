@@ -3,6 +3,7 @@ from datetime import timedelta, datetime, timezone
 import os
 
 from jwt import ExpiredSignatureError, InvalidTokenError
+from platformdirs import user_log_dir
 from pwdlib import PasswordHash
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,6 +99,30 @@ async def send_otp_email(email: str, username: str, otp: str):
 
     fm = FastMail(mail_config)
     await fm.send_message(message, template_name="otp-email.html")
+
+
+async def send_reset_password_email(email: str, username: str, otp: str):
+    message = MessageSchema(
+        subject="Forgot your password?",
+        recipients=[email],
+        template_body={"username": username, "otp": otp},
+        subtype=MessageType.html,
+    )
+
+    fm = FastMail(mail_config)
+    await fm.send_message(message, template_name="forgot-password.html")
+
+
+async def update_user_password(session: AsyncSession, email: str, new_password: str):
+    user = await crud.get_user_by_email(session, email)
+    if not user:
+        return False
+
+    hashed_password = password_context.hash(new_password)
+    user.password_hash = hashed_password
+
+    await session.commit()
+    return True
 
 
 async def register_user(data: SignupRequest, session: AsyncSession, redis_client):

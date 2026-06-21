@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from core.models.users import UserRole, RegisterWays
 from utils.custom_validators.nanoid_string_validator import NanoIDString
@@ -38,6 +38,16 @@ class SignupRequest(BaseModel):
     username: str
     email: EmailStr
     password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(..., min_length=6, max_length=6)
+    new_password: str = Field(..., min_length=6)
 
 
 class GoogleSignupRequest(BaseModel):
