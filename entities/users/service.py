@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta, datetime, timezone
 import os
+from urllib.parse import quote
 
 from jwt import ExpiredSignatureError, InvalidTokenError
 from platformdirs import user_log_dir
@@ -394,33 +395,38 @@ async def github_response(
 
 
 async def register_user_with_github(user_data, session: AsyncSession, email: str):
-    access_token = refresh_token = None
+    username = user_data.get("username")
+    user = await crud.get_user_by_email(session, str(email))
 
-    try:
-        user = await register_user_without_otp(
-            GoogleSignupRequest.model_validate(user_data), session, RegisterWays.GITHUB
-        )
+    if not user:
+        try:
+            user = await register_user_without_otp(
+                GoogleSignupRequest.model_validate(user_data),
+                session,
+                RegisterWays.GITHUB,
+            )
 
-        await crud.verify_user(session, user)
-        access_token, refresh_token = generate_auth_tokens(user.id)
+            await crud.verify_user(session, user)
 
-    except IntegrityError:
-
-        user = await crud.get_user_by_id(session, email)
-        if not user:
+        except (IntegrityError, UserExistingError):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Database error",
             )
+
+    access_token, refresh_token = generate_auth_tokens(user.id)
     frontend_redirect_url = "http://localhost:3000/"
     redirect_response = RedirectResponse(url=frontend_redirect_url)
 
     set_auth_cookies(
         redirect_response, access_token, refresh_token, path="/auth/refresh"
     )
+
+    safe_username = quote(username) if username else ""
+
     redirect_response.set_cookie(
         key="username",
-        value=user_data.get("username"),
+        value=safe_username,
         httponly=False,
         samesite="lax",
         secure=False,
@@ -430,15 +436,23 @@ async def register_user_with_github(user_data, session: AsyncSession, email: str
 
 
 async def register_user_with_google(data, session: AsyncSession):
-    try:
-        user = await register_user_without_otp(
-            GoogleSignupRequest.model_validate(data), session, RegisterWays.GOOGLE
-        )
+    email = data.get("email")
+    username = data.get("username")
 
-        await crud.verify_user(session, user)
-        access_token, refresh_token = generate_auth_tokens(user.id)
-    except IntegrityError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=e.__notes__[0])
+    user = await crud.get_user_by_email(session, str(email))
+
+    if not user:
+        try:
+            user = await register_user_without_otp(
+                GoogleSignupRequest.model_validate(data), session, RegisterWays.GOOGLE
+            )
+
+            await crud.verify_user(session, user)
+        except (IntegrityError, UserExistingError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=e.__notes__[0]
+            )
+    access_token, refresh_token = generate_auth_tokens(user.id)
 
     frontend_redirect_url = "http://localhost:3000/"
     redirect_response = RedirectResponse(url=frontend_redirect_url)
@@ -446,5 +460,15 @@ async def register_user_with_google(data, session: AsyncSession):
         set_auth_cookies(
             redirect_response, access_token, refresh_token, path="/auth/refresh"
         )
+
+    safe_username = quote(username) if username else ""
+
+    redirect_response.set_cookie(
+        key="username",
+        value=safe_username,
+        httponly=False,
+        samesite="lax",
+        secure=False,
+    )
 
     return redirect_response

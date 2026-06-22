@@ -77,7 +77,6 @@ async def reset_password(
     data: ResetPasswordRequest,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-    print(data)
     saved_otp = await redis_client.get(f"reset_otp:{data.email}")
     if not saved_otp or saved_otp != data.otp:
         raise HTTPException(
