@@ -1,9 +1,16 @@
+import asyncio
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models import BookGenres
+from core.models import db_helper
+from .data import genres
 from entities.book_genres.schema import (
-    BookGenreSchema
+    BookGenreSchema,
+    BookGenreCreate,
+    BookGenreUpdate,
+    BookGenreUpdatePartial,
 )
 
 
@@ -14,3 +21,94 @@ async def get_all_genres(session: AsyncSession) -> list[BookGenreSchema]:
     genres = result.scalars().all()
 
     return [BookGenreSchema.model_validate(genre) for genre in genres]
+
+
+async def create_genre(session: AsyncSession, data: BookGenreCreate) -> BookGenreSchema:
+    new_genre = BookGenres(**data.model_dump())
+
+    session.add(new_genre)
+    await session.commit()
+    await session.refresh(new_genre)
+
+    return BookGenreSchema.model_validate(new_genre)
+
+
+async def get_genre_by_id(session: AsyncSession, id: int) -> BookGenres | None:
+    statement = select(BookGenres).where(BookGenres.id == id)
+
+    result = await session.execute(statement)
+    genre = result.scalar_one_or_none()
+
+    if genre is None:
+        return None
+    return genre
+
+
+async def update_genre(
+    session: AsyncSession, genre_id: int, data: BookGenreUpdate
+) -> BookGenreSchema | None:
+
+    statement = select(BookGenres).where(BookGenres.id == genre_id)
+
+    result = await session.execute(statement)
+    genre = result.scalar_one_or_none()
+
+    if genre is None:
+        return None
+
+    for key, value in data.model_dump().items():
+        setattr(genre, key, value)
+
+    await session.commit()
+    await session.refresh(genre)
+
+    return BookGenreSchema.model_validate(genre)
+
+
+async def partial_update_genre(
+    session: AsyncSession, genre_id: int, data: BookGenreUpdatePartial
+):
+    statement = select(BookGenres).where(BookGenres.id == genre_id)
+    result = await session.execute(statement)
+    genre = result.scalar_one_or_none()
+
+    if genre is None:
+        return None
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(genre, key, value)
+
+    await session.commit()
+    await session.refresh(genre)
+
+    return BookGenreSchema.model_validate(genre)
+
+
+async def delete_genre(session: AsyncSession, genre_id: int) -> bool:
+    result = await session.execute(select(BookGenres).where(BookGenres.id == genre_id))
+
+    genre = result.scalar_one_or_none()
+
+    if genre is None:
+        return False
+
+    await session.delete(genre)
+    await session.commit()
+    return True
+
+
+async def seed_genres(session: AsyncSession):
+    for genre in genres:
+        genre_create = BookGenreCreate(**genre)
+        await create_genre(session, genre_create)
+    print("Successfully")
+
+
+async def main():
+    async with db_helper.session_factory() as session:
+        await seed_genres(session)
+    pass
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

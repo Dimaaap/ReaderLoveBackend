@@ -7,6 +7,7 @@ __all__ = (
     "Oferta",
     "User",
     "BookGenres",
+    "BookAuthors",
 )
 
 from .base import Base
@@ -16,3 +17,4 @@ from .reviews import Review
 from .oferta import Oferta
 from .users import User
 from .book_genres import BookGenres
+from .book_authors import BookAuthors

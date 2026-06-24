@@ -7,12 +7,10 @@ class BookGenreBase(BaseModel):
     description: str | None = None
 
 
-class BookGenreCreate(BookGenreBase):
-    ...
+class BookGenreCreate(BookGenreBase): ...
 
 
-class BookGenreUpdate(BookGenreCreate):
-    ...
+class BookGenreUpdate(BookGenreCreate): ...
 
 
 class BookGenreUpdatePartial(BookGenreUpdate):
