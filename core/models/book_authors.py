@@ -1,7 +1,12 @@
+from typing import TYPE_CHECKING
+
 from .base import Base
 
-from sqlalchemy import String, Text, Integer
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from .books import Book
 
 
 class BookAuthors(Base):
@@ -11,6 +16,10 @@ class BookAuthors(Base):
     last_name: Mapped[str] = mapped_column(String(255), nullable=True)
     slug: Mapped[str] = mapped_column(
         String(255), nullable=False, unique=True, index=True
+    )
+
+    books: Mapped[list["Book"]] = relationship(
+        secondary="author_book_association", back_populates="authors"
     )
 
     def __str__(self):
