@@ -1,0 +1,96 @@
+import json
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.redis_config import redis_client
+from core.models import db_helper
+from entities.books.schema import BookSchema, BookCreate, BookUpdatePartial
+
+from . import crud
+
+router = APIRouter(tags=["Books"])
+
+
+@router.get("/")
+async def get_all_books(
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    cache_key = "books:all"
+
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    books = await crud.get_all_books(session)
+    result = [BookSchema.model_validate(book) for book in books]
+
+    await redis_client.set(
+        cache_key, json.dumps([b.model_dump() for b in result]), ex=600
+    )
+    return result
+
+
+@router.get("/{book_id}", response_model=BookSchema)
+async def get_book_by_id(
+    book_id: int, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
+):
+    cache_key = f"books:{book_id}"
+
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    book = await crud.get_book_by_id(session, book_id)
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+    result = BookSchema.model_validate(book)
+    await redis_client.set(cache_key, result.model_dump_json(), ex=300)
+    return result
+
+
+@router.post("/", response_model=BookSchema, status_code=status.HTTP_201_CREATED)
+async def create_book(
+    data: BookCreate,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    new_book = await crud.create_book(session, data)
+    await redis_client.delete("books:all")
+    return new_book
+
+
+@router.patch("/{book_id}", response_model=BookSchema)
+async def update_book(
+    book_id: int,
+    data: BookUpdatePartial,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    book = await crud.get_book_by_id(session, book_id)
+
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+    updated_book = await crud.update_book(session, book, data, partial=True)
+
+    await redis_client.delete(f"books:{book_id}")
+    await redis_client.delete("books:all")
+    return updated_book
+
+
+@router.delete("/{book_id}")
+async def delete_book_view(
+    book_id: int, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
+):
+    book = await crud.get_book_by_id(session, book_id)
+
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+    await crud.delete_book(session, book)
+    await redis_client.delete(f"books:{book_id}")
+    await redis_client.delete("books:all")
+
+    return {"ok": True}

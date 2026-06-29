@@ -11,6 +11,7 @@ __all__ = (
     "Book",
     "AuthorBookAssociation",
     "GenreBookAssociation",
+    "BaseWithoutId",
 )
 
 from .base import Base
@@ -24,3 +25,4 @@ from .book_authors import BookAuthors
 from .books import Book
 from .author_book_association import AuthorBookAssociation
 from .genre_book_association import GenreBookAssociation
+from .base import BaseWithoutId

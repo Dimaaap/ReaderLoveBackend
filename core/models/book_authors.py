@@ -24,3 +24,6 @@ class BookAuthors(Base):
 
     def __str__(self):
         return f"{self.__class__.__name__}(first_name={self.first_name}, last_name={self.last_name})"
+
+    def get_author_name(self):
+        return f"{self.first_name} {self.last_name}"

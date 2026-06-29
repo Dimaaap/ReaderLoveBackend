@@ -6,8 +6,8 @@ from sqlalchemy import String, Text, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
-    from .author_book_association import AuthorBookAssociation
-    from .genre_book_association import GenreBookAssociation
+    from .book_authors import BookAuthors
+    from .book_genres import BookGenres
 
 
 class Book(Base):
@@ -19,10 +19,10 @@ class Book(Base):
     publish_date: Mapped[str] = mapped_column(String(100), nullable=True)
     language: Mapped[str] = mapped_column(String(50), nullable=True)
 
-    authors: Mapped[list["AuthorBookAssociation"]] = relationship(
+    authors: Mapped[list["BookAuthors"]] = relationship(
         secondary="author_book_association", back_populates="books"
     )
-    genres: Mapped[list["GenreBookAssociation"]] = relationship(
+    genres: Mapped[list["BookGenres"]] = relationship(
         secondary="genre_book_association", back_populates="books"
     )
 

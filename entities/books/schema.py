@@ -10,19 +10,24 @@ class BookBase(BaseModel):
     image_link: str
     pages_count: int
     description: str | None = None
-    publish_date: str | None = None
+    publish_date: str | int | None = None
     language: str | None = None
 
     authors: list[BookAuthorsSchema]
     genres: list[BookGenreSchema]
 
 
+class AuthorInsideBook(BaseModel):
+    first_name: str
+    last_name: str
+
+
 class BookCreate(BookBase):
-    ...
+    authors: list[AuthorInsideBook]
+    genres: list[str]
 
 
-class BookUpdate(BookCreate):
-    ...
+class BookUpdate(BookCreate): ...
 
 
 class BookUpdatePartial(BookUpdate):
@@ -32,7 +37,6 @@ class BookUpdatePartial(BookUpdate):
     pages_count: int | None
     authors: list[BookAuthorsSchema] | None
     genres: list[BookGenreSchema] | None
-
 
 
 class BookSchema(BookBase):

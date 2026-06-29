@@ -1,10 +1,10 @@
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from .base import BaseWithoutId
 
 
-class AuthorBookAssociation(Base):
+class AuthorBookAssociation(BaseWithoutId):
     __tablename__ = "author_book_association"
 
     book_id: Mapped[int] = mapped_column(
