@@ -12,6 +12,9 @@ __all__ = (
     "AuthorBookAssociation",
     "GenreBookAssociation",
     "BaseWithoutId",
+    "UserBookAssociation",
+    "TemplateQuote",
+    "ReadingSession",
 )
 
 from .base import Base
@@ -26,3 +29,6 @@ from .books import Book
 from .author_book_association import AuthorBookAssociation
 from .genre_book_association import GenreBookAssociation
 from .base import BaseWithoutId
+from .user_book_association import UserBookAssociation
+from .template_quotes import TemplateQuote
+from .reading_sessions import ReadingSession

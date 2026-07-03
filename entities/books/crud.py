@@ -33,6 +33,17 @@ async def get_book_by_id(session: AsyncSession, book_id: int) -> Book | None:
     return result.scalar_one_or_none()
 
 
+async def get_book_by_slug(session: AsyncSession, book_slug: str) -> Book | None:
+    statement = (
+        select(Book)
+        .where(Book.slug == book_slug)
+        .options(selectinload(Book.authors), selectinload(Book.genres))
+    )
+
+    result = await session.execute(statement)
+    return result.scalar_one_or_none()
+
+
 async def create_book(session: AsyncSession, data: BookCreate) -> Book:
     book_data = data.model_dump(exclude={"authors", "genres"})
     book = Book(**book_data)

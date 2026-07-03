@@ -8,6 +8,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 if TYPE_CHECKING:
     from .book_authors import BookAuthors
     from .book_genres import BookGenres
+    from .users import User
+    from .reading_sessions import ReadingSession
 
 
 class Book(Base):
@@ -24,6 +26,12 @@ class Book(Base):
     )
     genres: Mapped[list["BookGenres"]] = relationship(
         secondary="genre_book_association", back_populates="books"
+    )
+    users: Mapped[list["User"]] = relationship(
+        secondary="user_book_association", back_populates="books"
+    )
+    reading_sessions: Mapped[list["ReadingSession"]] = relationship(
+        "ReadingSession", back_populates="book", cascade="all, delete-orphan"
     )
 
     def __str__(self):

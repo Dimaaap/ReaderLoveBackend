@@ -50,6 +50,28 @@ async def get_book_by_id(
     return result
 
 
+@router.get("/by-slug/{book_slug}", response_model=BookSchema)
+async def get_book_by_slug(
+    book_slug: str, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
+):
+    cache_key = f"books:{book_slug}"
+
+    cached = await redis_client.get(cache_key)
+
+    if cached:
+        return json.loads(cached)
+
+    book = await crud.get_book_by_slug(session, book_slug)
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+
+    result = BookSchema.model_validate(book)
+    await redis_client.set(cache_key, result.model_dump_json(), ex=300)
+    return result
+
+
 @router.post("/", response_model=BookSchema, status_code=status.HTTP_201_CREATED)
 async def create_book(
     data: BookCreate,

@@ -1,12 +1,17 @@
 from datetime import datetime
 from enum import Enum
 import os
+from typing import TYPE_CHECKING
 
 from utils.generate_nano import generate_nanoid
 from .base import Base
 
 from sqlalchemy import String, DateTime, Boolean, Enum as SqlEnum, func, false
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from .books import Book
+    from .reading_sessions import ReadingSession
 
 
 class UserRole(str, Enum):
@@ -54,6 +59,14 @@ class User(Base):
         default=RegisterWays.SITE,
         server_default=RegisterWays.SITE.value,
         nullable=False,
+    )
+
+    books: Mapped[list["Book"]] = relationship(
+        secondary="user_book_association", back_populates="users"
+    )
+
+    reading_sessions: Mapped[list["ReadingSession"]] = relationship(
+        "ReadingSession", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __str__(self) -> str:

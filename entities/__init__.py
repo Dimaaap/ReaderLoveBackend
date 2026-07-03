@@ -7,6 +7,7 @@ from .users import router as users_router
 from .book_genres import router as book_genres_router
 from .book_authors import router as book_authors_router
 from .books import router as books_router
+from .template_quotes import router as template_quotes_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(social_links_router)
@@ -16,3 +17,4 @@ router.include_router(users_router)
 router.include_router(book_genres_router)
 router.include_router(book_authors_router)
 router.include_router(books_router)
+router.include_router(template_quotes_router)
