@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .book_genres import BookGenres
     from .users import User
     from .reading_sessions import ReadingSession
+    from .book_notes import BookNotes
 
 
 class Book(Base):
@@ -32,6 +33,10 @@ class Book(Base):
     )
     reading_sessions: Mapped[list["ReadingSession"]] = relationship(
         "ReadingSession", back_populates="book", cascade="all, delete-orphan"
+    )
+
+    notes: Mapped[list["BookNotes"]] = relationship(
+        "BookNotes", back_populates="book", cascade="all, delete-orphan"
     )
 
     def __str__(self):

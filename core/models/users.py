@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 if TYPE_CHECKING:
     from .books import Book
     from .reading_sessions import ReadingSession
+    from .book_notes import BookNotes
 
 
 class UserRole(str, Enum):
@@ -67,6 +68,10 @@ class User(Base):
 
     reading_sessions: Mapped[list["ReadingSession"]] = relationship(
         "ReadingSession", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    notes: Mapped[list["BookNotes"]] = relationship(
+        "BookNotes", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __str__(self) -> str:

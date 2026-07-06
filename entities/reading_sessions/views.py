@@ -7,7 +7,6 @@ from core.models import db_helper
 from entities.reading_sessions.schema import (
     ReadingSessionCreate,
     ReadingSessionSchema,
-    ReadingSessionUpdatePartial,
 )
 from . import crud
 
@@ -25,9 +24,28 @@ async def get_all_reading_sessions(
         return json.loads(cached)
 
     data = await crud.get_all_reading_sessions(session)
-    await redis_client.set(
-        cache_key, json.dumps([item.model_dump() for item in data]), ex=300
-    )
+    serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
+
+    await redis_client.set(cache_key, serialized_data, ex=300)
+    return data
+
+
+@router.get("/by-username", response_model=list[ReadingSessionSchema])
+async def get_reading_sessions_by_username(
+    username: str,
+    limit: int,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    cache_key = f"reading_sessions:user:{username}"
+    cached = await redis_client.get(cache_key)
+
+    if cached:
+        return json.loads(cached)[:limit]
+
+    data = await crud.get_user_reading_session(username, session, limit)
+    serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
+
+    await redis_client.set(cache_key, serialized_data, ex=300)
     return data
 
 
@@ -45,9 +63,9 @@ async def get_user_book_sessions(
 
     data = await crud.get_user_book_reading_session(username, book_id, session)
 
-    await redis_client.set(
-        cache_key, json.dumps([item.model_dump() for item in data]), ex=300
-    )
+    serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
+
+    await redis_client.set(cache_key, serialized_data, ex=300)
     return data
 
 
@@ -72,3 +90,29 @@ async def get_reading_session_by_id(
     result = ReadingSessionSchema.model_validate(db_session)
     await redis_client.set(cache_key, result.model_dump_json(), ex=300)
     return result
+
+
+@router.post("/", response_model=ReadingSessionCreate, status_code=201)
+async def create_reading_session(
+    data: ReadingSessionCreate,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    reading_session = await crud.create_reading_session(session, data)
+    await redis_client.delete("reading_sessions:all")
+
+    return reading_session
+
+
+@router.delete("/{session_id}")
+async def delete_reading_session_by_id(
+    session_id: int,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    deleted = await crud.delete_reading_session(session, session_id)
+
+    if deleted:
+        try:
+            await redis_client.delete(f"reading_sessions:all")
+            await redis_client.delete(f"reading_sessions:{session_id}")
+        except Exception:
+            return

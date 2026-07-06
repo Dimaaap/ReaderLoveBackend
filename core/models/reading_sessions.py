@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from sqlalchemy import String, DateTime, Integer, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from utils.generate_nano import generate_nanoid
 from .base import Base
 
 if TYPE_CHECKING:
@@ -16,11 +15,7 @@ if TYPE_CHECKING:
 class ReadingSession(Base):
     __tablename__ = "reading_sessions"
 
-    id: Mapped[str] = mapped_column(
-        String(int(os.getenv("NANOID_KEY_SIZE"))),
-        primary_key=True,
-        default=generate_nanoid,
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     user_id: Mapped[str] = mapped_column(
         String(int(os.getenv("NANOID_KEY_SIZE"))),

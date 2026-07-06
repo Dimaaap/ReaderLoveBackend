@@ -14,13 +14,38 @@ from entities.reading_sessions.schema import (
 async def get_all_reading_sessions(session: AsyncSession) -> list[ReadingSessionSchema]:
     statement = (
         select(ReadingSession)
-        .options(joinedload(ReadingSession.book), joinedload(ReadingSession.user))
+        .options(
+            joinedload(ReadingSession.book),
+            joinedload(ReadingSession.user),
+        )
         .order_by(ReadingSession.id)
     )
 
     result = await session.execute(statement)
 
     reading_sessions = result.scalars().all()
+    return [
+        ReadingSessionSchema.model_validate(session) for session in reading_sessions
+    ]
+
+
+async def get_user_reading_session(
+    username: str, session: AsyncSession, limit: int = None
+) -> list[ReadingSessionSchema]:
+    statement = (
+        select(ReadingSession)
+        .join(ReadingSession.user)
+        .where(User.username == username)
+        .options(joinedload(ReadingSession.book), joinedload(ReadingSession.user))
+        .order_by(ReadingSession.started_at.desc())
+    )
+
+    if limit is not None:
+        statement = statement.limit(limit)
+
+    result = await session.execute(statement)
+    reading_sessions = result.scalars().all()
+
     return [
         ReadingSessionSchema.model_validate(session) for session in reading_sessions
     ]
@@ -90,8 +115,15 @@ async def update_reading_session(
     return reading_session
 
 
-async def delete_reading_session(
-    session: AsyncSession, reading_session: ReadingSession
-) -> None:
+async def delete_reading_session(session: AsyncSession, session_id: int) -> bool:
+    result = await session.execute(
+        select(ReadingSession).where(ReadingSession.id == session_id)
+    )
+    reading_session = result.scalar_one_or_none()
+
+    if reading_session is None:
+        return False
+
     await session.delete(reading_session)
     await session.commit()
+    return True
