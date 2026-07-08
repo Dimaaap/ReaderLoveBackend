@@ -4,7 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.redis_config import redis_client
 from core.models import db_helper
-from entities.book_notes.schema import BookNotesCreate, BookNotesSchema
+from entities.book_notes.schema import (
+    BookNotesCreate,
+    BookNotesSchema,
+    BookNotesUpdatePartial,
+)
 
 from . import crud
 
@@ -26,6 +30,19 @@ async def get_all_book_notes(
 
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data
+
+
+@router.post("/", response_model=BookNotesSchema, status_code=201)
+async def create_book_note_view(
+    data: BookNotesCreate,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    book_note = await crud.create_book_note(session, data)
+
+    await redis_client.delete("book_notes:all")
+    user_cache_key = f"book_notes:user:{data.user_username}"
+    await redis_client.delete(user_cache_key)
+    return book_note
 
 
 @router.get("/by-username", response_model=list[BookNotesSchema])
@@ -115,15 +132,56 @@ async def toggle_book_notes_importance(
     return result
 
 
+@router.patch("/{book_note_id}", response_model=BookNotesSchema)
+async def update_book_note(
+    book_note_id: int,
+    data: BookNotesUpdatePartial,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    book_note = await crud.get_book_note_by_id(session, book_note_id)
+
+    if not book_note:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book note not found"
+        )
+
+    updated_note = await crud.update_book_note(
+        session, book_note.id, data, partial=True
+    )
+
+    try:
+        await redis_client.delete(f"book_notes:{book_note_id}")
+
+        await redis_client.delete(f"book_notes:all")
+
+        if updated_note.user:
+            await redis_client.delete(f"book_notes:user:{updated_note.user.username}")
+            await redis_client.delete(
+                f"book_notes:user:{updated_note.user.username}:book:{updated_note.book_id}"
+            )
+    except Exception:
+        pass
+    return updated_note
+
+
 @router.delete("/{note_id}")
 async def delete_book_note_by_id(
     note_id: int, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
 ):
-    deleted = await crud.delete_book_note(session, note_id)
+    is_deleted, deleted_note = await crud.delete_book_note(session, note_id)
 
-    if deleted:
+    if is_deleted:
         try:
-            await redis_client.delete(f"reading_sessions:all")
-            await redis_client.delete(f"reading_sessions:{note_id}")
+            await redis_client.delete(f"book_notes:{note_id}")
+
+            await redis_client.delete(f"book_notes:all")
+
+            if deleted_note.user:
+                await redis_client.delete(
+                    f"book_notes:user:{deleted_note.user.username}"
+                )
+                await redis_client.delete(
+                    f"book_notes:user:{deleted_note.user.username}:book:{deleted_note.book_id}"
+                )
         except Exception:
-            return
+            pass

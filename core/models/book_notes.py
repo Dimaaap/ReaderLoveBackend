@@ -55,6 +55,7 @@ class BookNotes(Base):
     is_important: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0"
     )
+    book_page: Mapped[int] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

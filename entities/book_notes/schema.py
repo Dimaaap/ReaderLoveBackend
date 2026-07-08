@@ -7,13 +7,14 @@ from core.models.book_notes import NoteCategory
 
 class BookNotesBase(BaseModel):
     book_id: int
-    user_id: str
+    user_username: str
 
     note_text: str
     note_category: NoteCategory
     is_important: bool = False
+    book_page: int | None = None
 
-    created_at: datetime
+    created_at: datetime | None = None
 
 
 class BookNotesCreate(BookNotesBase): ...
@@ -24,7 +25,6 @@ class BookNotesUpdate(BookNotesCreate): ...
 
 class BookNotesUpdatePartial(BookNotesUpdate):
     book_id: int | None = None
-    user_id: str | None = None
 
     note_text: str | None = None
     note_category: NoteCategory | None = None
@@ -51,6 +51,7 @@ class BookBookNotesSchema(BaseModel):
 
 class BookNotesSchema(BookNotesBase):
     id: int
+    user_username: str | None = None
 
     user: UserBookNotesSchema
     book: BookBookNotesSchema

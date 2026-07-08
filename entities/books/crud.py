@@ -4,7 +4,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.models import Book, BookGenres, BookAuthors, db_helper
+from core.models import (
+    Book,
+    BookGenres,
+    BookAuthors,
+    db_helper,
+    UserBookAssociation,
+    User,
+)
+from core.models.user_book_association import BookReadStatus
 from .data import books
 from entities.books.schema import BookSchema, BookCreate, BookUpdate, BookUpdatePartial
 
@@ -101,6 +109,29 @@ async def update_book(
     await session.commit()
     await session.refresh(book)
     return book
+
+
+async def get_user_active_books_for_notes(
+    username: str, session: AsyncSession
+) -> list[BookSchema]:
+    statement = (
+        select(Book)
+        .join(UserBookAssociation, Book.id == UserBookAssociation.book_id)
+        .join(User, UserBookAssociation.user_id == User.id)
+        .where(
+            User.username == username,
+            UserBookAssociation.status.in_(
+                [BookReadStatus.READING, BookReadStatus.FINISHED]
+            ),
+        )
+        .options(selectinload(Book.authors), selectinload(Book.genres))
+        .order_by(Book.title)
+    )
+
+    result = await session.execute(statement)
+    books = result.scalars().all()
+
+    return [BookSchema.model_validate(book) for book in books]
 
 
 async def delete_book(session: AsyncSession, book: Book) -> None:

@@ -101,6 +101,24 @@ async def update_book(
     return updated_book
 
 
+@router.get("/{username}/books")
+async def get_user_active_books(
+    username: str, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
+):
+    cache_key = f"books:{username}:active"
+
+    cached = await redis_client.get(cache_key)
+
+    if cached:
+        return json.loads(cached)
+
+    books = await crud.get_user_active_books_for_notes(username, session)
+    await redis_client.set(
+        cache_key, json.dumps([b.model_dump() for b in books]), ex=600
+    )
+    return books
+
+
 @router.delete("/{book_id}")
 async def delete_book_view(
     book_id: int, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
