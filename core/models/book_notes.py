@@ -60,7 +60,6 @@ class BookNotes(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-
     user: Mapped["User"] = relationship("User", back_populates="notes")
     book: Mapped["Book"] = relationship("Book", back_populates="notes")
 
