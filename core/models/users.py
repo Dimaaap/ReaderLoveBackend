@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .books import Book
     from .reading_sessions import ReadingSession
     from .book_notes import BookNotes
+    from .user_goals import UserGoals
 
 
 class UserRole(str, Enum):
@@ -72,6 +73,9 @@ class User(Base):
 
     notes: Mapped[list["BookNotes"]] = relationship(
         "BookNotes", back_populates="user", cascade="all, delete-orphan"
+    )
+    goals: Mapped[list["UserGoals"]] = relationship(
+        "UserGoals", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __str__(self) -> str:

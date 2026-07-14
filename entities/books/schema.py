@@ -1,5 +1,8 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict
 
+from core.models.user_book_association import BookReadStatus
 from entities.book_authors.schema import BookAuthorsSchema
 from entities.book_genres.schema import BookGenreSchema
 
@@ -41,5 +44,36 @@ class BookUpdatePartial(BookUpdate):
 
 class BookSchema(BookBase):
     id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MiniReadingSessionSchema(BaseModel):
+    id: int
+    start_page: int
+    end_page: int | None
+    started_at: datetime
+    ended_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BookDetailSchema(BookSchema):
+    reading_sessions_count: int = 0
+    read_pages: int = 0
+    active_session_id: int | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BookSchemaWithSessions(BookDetailSchema):
+    weekly_read_pages: int = 0
+    recent_sessions: list[MiniReadingSessionSchema] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserBookSchema(BookSchema):
+    status: BookReadStatus
 
     model_config = ConfigDict(from_attributes=True)

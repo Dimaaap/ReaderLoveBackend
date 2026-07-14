@@ -16,6 +16,8 @@ __all__ = (
     "TemplateQuote",
     "ReadingSession",
     "BookNotes",
+    "UserGoals",
+    "UserGoalsProgress",
 )
 
 from .base import Base
@@ -34,3 +36,5 @@ from .user_book_association import UserBookAssociation
 from .template_quotes import TemplateQuote
 from .reading_sessions import ReadingSession
 from .book_notes import BookNotes
+from .user_goals import UserGoals
+from .user_goals_progress import UserGoalsProgress

@@ -4,7 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.redis_config import redis_client
 from core.models import db_helper
-from entities.books.schema import BookSchema, BookCreate, BookUpdatePartial
+from entities.books.schema import (
+    BookSchema,
+    BookCreate,
+    BookUpdatePartial,
+    BookDetailSchema,
+    BookSchemaWithSessions,
+)
 
 from . import crud
 
@@ -70,6 +76,58 @@ async def get_book_by_slug(
     result = BookSchema.model_validate(book)
     await redis_client.set(cache_key, result.model_dump_json(), ex=300)
     return result
+
+
+@router.get("/{username}/slug/{book_slug}", response_model=BookDetailSchema)
+async def get_book_details(
+    username: str,
+    book_slug: str,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    book_details = await crud.get_book_by_slug_for_user(session, book_slug, username)
+
+    if not book_details:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Book with slug {book_slug} was not found",
+        )
+
+    return book_details
+
+
+@router.get("/current-reading/{username}", response_model=BookSchemaWithSessions)
+async def get_current_reading_book(
+    username: str, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
+):
+    book_data = await crud.get_current_main_reading_book(session, username)
+
+    if not book_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Last reading book for user {username} was not found",
+        )
+
+    return book_data
+
+
+@router.get(
+    "/book-with-sessions/{book_slug}/{username}", response_model=BookSchemaWithSessions
+)
+async def get_book_with_sessions(
+    book_slug: str,
+    username: str,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    book_data = await crud.get_book_by_slug_for_user_with_sessions_stats(
+        session, book_slug, username
+    )
+
+    if not book_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Not found books"
+        )
+
+    return book_data
 
 
 @router.post("/", response_model=BookSchema, status_code=status.HTTP_201_CREATED)

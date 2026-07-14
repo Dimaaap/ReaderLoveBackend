@@ -92,7 +92,7 @@ async def get_reading_session_by_id(
     return result
 
 
-@router.post("/", response_model=ReadingSessionCreate, status_code=201)
+@router.post("/", response_model=ReadingSessionSchema, status_code=201)
 async def create_reading_session(
     data: ReadingSessionCreate,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),

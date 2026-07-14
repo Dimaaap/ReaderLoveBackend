@@ -1,8 +1,11 @@
+from fastapi import HTTPException, status
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from core.models import ReadingSession, User
+from core.models import ReadingSession, User, UserBookAssociation
+from core.models.user_book_association import BookReadStatus
 from entities.reading_sessions.schema import (
     ReadingSessionSchema,
     ReadingSessionCreate,
@@ -90,12 +93,41 @@ async def get_reading_session_by_id(
 async def create_reading_session(
     session: AsyncSession, data: ReadingSessionCreate
 ) -> ReadingSession:
-    reading_session_data = data.model_dump(exclude={"user", "book"})
+
+    user = select(User).where(User.username == data.username)
+    result = await session.execute(user)
+    user_db = result.scalar_one_or_none()
+
+    if not user_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"user with username {data.username} was not found",
+        )
+
+    association_statement = select(UserBookAssociation).where(
+        UserBookAssociation.user_id == user_db.id,
+        UserBookAssociation.book_id == data.book_id,
+    )
+    association_result = await session.execute(association_statement)
+    association = association_result.scalar_one_or_none()
+
+    if association:
+        if association.status != BookReadStatus.READING:
+            association.status = BookReadStatus.READING
+
+    else:
+        new_association = UserBookAssociation(
+            user_id=user_db.id, book_id=data.book_id, status=BookReadStatus.READING
+        )
+        session.add(new_association)
+
+    reading_session_data = data.model_dump(exclude={"user", "book", "username"})
+    reading_session_data["user_id"] = user_db.id
     reading_session = ReadingSession(**reading_session_data)
 
     session.add(reading_session)
     await session.commit()
-    await session.refresh(reading_session)
+    await session.refresh(reading_session, ["user", "book"])
     return reading_session
 
 

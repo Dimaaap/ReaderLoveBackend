@@ -12,7 +12,13 @@ class ReadingSessionBase(BaseModel):
     end_page: int | None = None
 
 
-class ReadingSessionCreate(ReadingSessionBase): ...
+class ReadingSessionCreate(BaseModel):
+    username: str
+    book_id: int
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    start_page: int
+    end_page: int | None = None
 
 
 class ReadingSessionUpdate(ReadingSessionCreate): ...
