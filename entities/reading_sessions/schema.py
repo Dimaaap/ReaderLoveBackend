@@ -10,6 +10,7 @@ class ReadingSessionBase(BaseModel):
     ended_at: datetime | None = None
     start_page: int
     end_page: int | None = None
+    is_tracked: bool = True
 
 
 class ReadingSessionCreate(BaseModel):
@@ -19,13 +20,14 @@ class ReadingSessionCreate(BaseModel):
     ended_at: datetime | None = None
     start_page: int
     end_page: int | None = None
+    is_tracked: bool = True
 
 
 class ReadingSessionUpdate(ReadingSessionCreate): ...
 
 
 class ReadingSessionUpdatePartial(ReadingSessionUpdate):
-    user_id: str | None = None
+    username: str | None = None
     book_id: int | None = None
     started_at: datetime | None = None
     start_page: int | None = None

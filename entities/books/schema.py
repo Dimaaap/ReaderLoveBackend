@@ -54,6 +54,7 @@ class MiniReadingSessionSchema(BaseModel):
     end_page: int | None
     started_at: datetime
     ended_at: datetime | None
+    is_tracked: bool = True
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -69,6 +70,7 @@ class BookDetailSchema(BookSchema):
 class BookSchemaWithSessions(BookDetailSchema):
     weekly_read_pages: int = 0
     recent_sessions: list[MiniReadingSessionSchema] = []
+    current_streak: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,6 +15,7 @@ from core.models import (
     ReadingSession,
 )
 from core.models.user_book_association import BookReadStatus
+from entities.books.utils import calculate_streak
 from .data import books
 from entities.books.schema import (
     BookSchema,
@@ -64,7 +65,7 @@ async def get_book_by_slug(session: AsyncSession, book_slug: str) -> Book | None
 
 
 async def get_book_by_slug_for_user_with_sessions_stats(
-    session: AsyncSession, book_slug: str, username: str
+    session: AsyncSession, book_slug: str, username: str, limit: int = 5
 ) -> BookSchemaWithSessions | None:
     book_statement = (
         select(Book)
@@ -110,7 +111,7 @@ async def get_book_by_slug_for_user_with_sessions_stats(
         select(ReadingSession)
         .where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
         .order_by(desc(ReadingSession.started_at))
-        .limit(5)
+        .limit(limit)
     )
 
     recent_sessions_result = await session.execute(recent_session_statement)
@@ -137,12 +138,27 @@ async def get_book_by_slug_for_user_with_sessions_stats(
         if s.end_page >= s.start_page
     )
 
+    dates_statement = (
+        (
+            select(cast(ReadingSession.started_at, Date))
+            .where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
+            .distinct()
+        )
+        .distinct()
+        .order_by(desc(cast(ReadingSession.started_at, Date)))
+    )
+
+    dates_result = await session.execute(dates_statement)
+    reading_dates = dates_result.scalars().all()
+    current_streak = calculate_streak(reading_dates)
+
     book_base_data = BookSchema.model_validate(book).model_dump()
     book_base_data["reading_sessions_count"] = stats.sessions_count
     book_base_data["read_pages"] = stats.max_end_page
     book_base_data["weekly_read_pages"] = weekly_pages
     book_base_data["active_session_id"] = active_session_id
     book_base_data["recent_sessions"] = recent_sessions
+    book_base_data["current_streak"] = current_streak
 
     return BookSchemaWithSessions.model_validate(book_base_data)
 
@@ -199,7 +215,7 @@ async def get_book_by_slug_for_user(
 
 
 async def get_current_main_reading_book(
-    session: AsyncSession, username: str
+    session: AsyncSession, username: str, limit: int = 5
 ) -> BookSchemaWithSessions | None:
     user_statement = select(User.id).where(User.username == username)
     user_result = await session.execute(user_statement)
@@ -232,7 +248,6 @@ async def get_current_main_reading_book(
         )
         result = await session.execute(last_read_statement)
         book_slug = result.scalar_one_or_none()
-        print(book_slug)
 
     if not book_slug:
         fallback_statement = (
@@ -250,7 +265,7 @@ async def get_current_main_reading_book(
 
     if book_slug:
         return await get_book_by_slug_for_user_with_sessions_stats(
-            session, book_slug, username
+            session, book_slug, username, limit
         )
 
     return None

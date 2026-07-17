@@ -2,7 +2,7 @@ from datetime import datetime
 import os
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, DateTime, Integer, ForeignKey, func
+from sqlalchemy import String, DateTime, Integer, Boolean, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -41,6 +41,8 @@ class ReadingSession(Base):
 
     start_page: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     end_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    is_tracked: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
     user: Mapped["User"] = relationship("User", back_populates="reading_sessions")
     book: Mapped["Book"] = relationship("Book", back_populates="reading_sessions")

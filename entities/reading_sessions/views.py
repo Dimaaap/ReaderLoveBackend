@@ -7,6 +7,7 @@ from core.models import db_helper
 from entities.reading_sessions.schema import (
     ReadingSessionCreate,
     ReadingSessionSchema,
+    ReadingSessionUpdatePartial,
 )
 from . import crud
 
@@ -101,6 +102,26 @@ async def create_reading_session(
     await redis_client.delete("reading_sessions:all")
 
     return reading_session
+
+
+@router.patch("/{session_id}", response_model=ReadingSessionSchema)
+async def update_reading_session(
+    session_id: int,
+    data: ReadingSessionUpdatePartial,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    reading_session = await crud.get_reading_session_by_id(session, session_id)
+
+    if not reading_session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Reading Session Not Found"
+        )
+
+    updated_session = await crud.update_reading_session(
+        session, reading_session, data, partial=True
+    )
+
+    return updated_session
 
 
 @router.delete("/{session_id}")

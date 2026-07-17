@@ -97,9 +97,11 @@ async def get_book_details(
 
 @router.get("/current-reading/{username}", response_model=BookSchemaWithSessions)
 async def get_current_reading_book(
-    username: str, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
+    username: str,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+    limit: int = 5,
 ):
-    book_data = await crud.get_current_main_reading_book(session, username)
+    book_data = await crud.get_current_main_reading_book(session, username, limit)
 
     if not book_data:
         raise HTTPException(
