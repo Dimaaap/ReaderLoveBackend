@@ -10,6 +10,8 @@ from fastapi import (
     BackgroundTasks,
     status,
     Query,
+    UploadFile,
+    File,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +24,7 @@ from entities.users.schema import (
     LoginSchema,
     ForgotPasswordRequest,
     ResetPasswordRequest,
+    UpdateUserPartial,
 )
 from . import service, crud
 from .exceptions import GitHubException
@@ -51,7 +54,6 @@ async def forgot_password(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-    print(data)
     user_email = str(data.email)
     user = await crud.get_user_by_email(session, user_email)
 
@@ -211,7 +213,124 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
 
-    return {"id": user.id, "email": user.email, "username": user.username}
+    return {
+        "avatar": user.avatar,
+        "about_info": user.about_info,
+        "username": user.username,
+        "email": user.email,
+        "avatar_color": user.avatar_color,
+        "role": user.role,
+        "register_way": user.register_way,
+    }
+
+
+@router.delete("/me/avatar")
+async def delete_avatar(
+    request: Request,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    access_token = request.cookies.get("access_token")
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Not authenticated"
+        )
+
+    if await service.is_token_blacklisted(access_token, redis_client):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Session revoked"
+        )
+
+    user_id = service.get_user_id_from_token(access_token, expected_type="access")
+    user = await crud.get_user_by_id(session, user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    await service.delete_avatar(user.avatar)
+    await crud.delete_avatar(session, user)
+
+    return {"message": "Avatar deleted"}
+
+
+@router.patch("/me")
+async def patch_user_data(
+    request: Request,
+    data: UpdateUserPartial,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    access_token = request.cookies.get("access_token")
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+
+    if await service.is_token_blacklisted(access_token, redis_client):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
+        )
+
+    user_id = service.try_get_user_id_from_token(access_token, expected_type="access")
+
+    user = await crud.get_user_by_id(session, user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Not found user"
+        )
+
+    updated_user = await crud.update_user(session, user, data, partial=True)
+    return updated_user
+
+
+@router.patch("/me/avatar")
+async def upload_avatar(
+    request: Request,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    access_token = request.cookies.get("access_token")
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+
+    if await service.is_token_blacklisted(access_token, redis_client):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
+        )
+
+    user_id = service.try_get_user_id_from_token(access_token, expected_type="access")
+
+    user = await crud.get_user_by_id(session, user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Not found user"
+        )
+
+    avatar_path = await service.save_avatar(file, user.avatar)
+
+    user = await crud.update_avatar(session, user, avatar_path)
+
+    avatar = None
+
+    if user.avatar:
+        avatar = f"http://localhost:8030{user.avatar}"
+
+    return {
+        "avatar": avatar,
+        "about_info": user.about_info,
+        "username": user.username,
+        "email": user.email,
+        "avatar_color": user.avatar_color,
+        "role": user.role,
+        "register_way": user.register_way,
+    }
 
 
 @router.get("/google/callback")

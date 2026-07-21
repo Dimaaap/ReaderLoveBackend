@@ -5,6 +5,7 @@ import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from core.redis_config import redis_client
 from custom_errors.user_existing_error import UserExistingError
@@ -33,6 +34,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/media", StaticFiles(directory="media"), name="media")
 
 
 @app.exception_handler(UserExistingError)

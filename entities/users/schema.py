@@ -2,13 +2,16 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from core.models.users import UserRole, RegisterWays
+from core.models.users import UserRole, RegisterWays, AvatarColors
 from utils.custom_validators.nanoid_string_validator import NanoIDString
 
 
 class UserBase(BaseModel):
     username: str
     email: EmailStr
+    avatar: str | None = None
+    avatar_color: AvatarColors | None = None
+    about_info: str | None = None
     date_joined: datetime | None = None
     role: UserRole = UserRole.USER
     is_verified: bool = False

@@ -1,14 +1,16 @@
 from pathlib import Path
 from datetime import timedelta, datetime, timezone
 import os
+import aiofiles
+from uuid import uuid4
+from PIL import Image
 from urllib.parse import quote
 
 from jwt import ExpiredSignatureError, InvalidTokenError
-from platformdirs import user_log_dir
 from pwdlib import PasswordHash
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import HTTPException, status, Response
+from fastapi import HTTPException, status, Response, UploadFile
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from jose import jwt, JWTError
 from starlette.responses import RedirectResponse
@@ -28,6 +30,10 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = os.getenv("JWT_ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_EXPIRED_MINUTES"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_EXPIRED_DAYS"))
+
+ALLOWED_TYPES = {"image/png", "image/jpeg", "image/webp"}
+AVATAR_DIR = "media/avatars"
+AVATAR_MAX_SIZE_IN_MB = 5 * 1024 * 1024
 
 mail_config = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
@@ -66,6 +72,53 @@ def generate_auth_tokens(user_id: str) -> tuple[str, str]:
     )
 
     return access_token, refresh_token
+
+
+async def save_avatar(file: UploadFile, old_avatar: str | None) -> str:
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image format"
+        )
+
+    os.makedirs(AVATAR_DIR, exist_ok=True)
+    filename = f"{uuid4().hex}.webp"
+
+    path = os.path.join(AVATAR_DIR, filename)
+
+    content = await file.read()
+
+    if len(content) > AVATAR_MAX_SIZE_IN_MB:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Maximum avatar file is 5MB"
+        )
+
+    temp_path = path + ".tmp"
+
+    async with aiofiles.open(temp_path, "wb") as f:
+        await f.write(content)
+
+    image = Image.open(temp_path)
+    image.thumbnail((512, 512))
+    image.save(path, "WEBP", quality=90)
+
+    os.remove(temp_path)
+
+    if old_avatar:
+        old_path = old_avatar.lstrip("/")
+
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    return f"/media/avatars/{filename}"
+
+
+async def delete_avatar(path: str | None):
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
 
 
 async def verify_otp(

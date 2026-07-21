@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from utils.generate_nano import generate_nanoid
 from .base import Base
 
-from sqlalchemy import String, DateTime, Boolean, Enum as SqlEnum, func, false
+from sqlalchemy import String, DateTime, Boolean, Text, Enum as SqlEnum, func, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -28,6 +28,15 @@ class RegisterWays(str, Enum):
     GITHUB = "github"
 
 
+class AvatarColors(str, Enum):
+    PINK = "pink"
+    PURPLE = "purple"
+    BLUE = "blue"
+    GREEN = "green"
+    ORANGE = "orange"
+    RED = "red"
+
+
 class User(Base):
     id: Mapped[str] = mapped_column(
         String(int(os.getenv("NANOID_KEY_SIZE"))),
@@ -39,6 +48,19 @@ class User(Base):
     email: Mapped[str] = mapped_column(
         String(255), unique=True, nullable=False, index=True
     )
+    avatar: Mapped[str] = mapped_column(String(255), nullable=True, default=None)
+    avatar_color: Mapped[AvatarColors] = mapped_column(
+        SqlEnum(
+            AvatarColors,
+            values_callable=lambda enum: [e.value for e in enum],
+            name="avatarcolors",
+        ),
+        default=AvatarColors.PINK,
+        server_default=AvatarColors.PINK.value,
+        nullable=False,
+    )
+
+    about_info: Mapped[str] = mapped_column(Text, nullable=True, default=None)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=True)
 
     date_joined: Mapped[datetime] = mapped_column(
