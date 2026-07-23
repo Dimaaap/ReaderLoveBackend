@@ -63,6 +63,11 @@ class VerifyOTPRequest(BaseModel):
     otp: str
 
 
+class ChangePasswordSchema(BaseModel):
+    current_password: str = Field(min_length=6)
+    new_password: str = Field(min_length=6)
+
+
 class LoginSchema(BaseModel):
     email: EmailStr
     password: str

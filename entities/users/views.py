@@ -25,6 +25,7 @@ from entities.users.schema import (
     ForgotPasswordRequest,
     ResetPasswordRequest,
     UpdateUserPartial,
+    ChangePasswordSchema,
 )
 from . import service, crud
 from .exceptions import GitHubException
@@ -253,6 +254,48 @@ async def delete_avatar(
     await crud.delete_avatar(session, user)
 
     return {"message": "Avatar deleted"}
+
+
+@router.patch("/me/change-password")
+async def change_password(
+    data: ChangePasswordSchema,
+    request: Request,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    access_token = request.cookies.get("access_token")
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
+    if await service.is_token_blacklisted(access_token, redis_client):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired",
+        )
+
+    user_id = service.try_get_user_id_from_token(
+        access_token,
+        expected_type="access",
+    )
+
+    user = await crud.get_user_by_id(session, user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    user = await service.change_password(
+        session,
+        user,
+        data.current_password,
+        data.new_password,
+    )
+
+    return {"message": "Success"}
 
 
 @router.patch("/me")

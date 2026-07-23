@@ -525,3 +525,24 @@ async def register_user_with_google(data, session: AsyncSession):
     )
 
     return redirect_response
+
+
+async def change_password(
+    session: AsyncSession, user: User, current_password: str, new_password: str
+):
+    if not password_context.verify(current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    if current_password == new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different",
+        )
+
+    user.password_hash = password_context.hash(new_password)
+
+    await session.commit()
+    await session.refresh(user)
