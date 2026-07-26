@@ -1,10 +1,11 @@
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from entities.users.schema import CreateUser, UpdateUser, UpdateUserPartial
 
-from core.models import User
+from core.models import User, UserSettings
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> User:
@@ -14,7 +15,13 @@ async def get_user_by_email(session: AsyncSession, email: str) -> User:
 
 
 async def get_user_by_id(session: AsyncSession, id: str) -> User:
-    statement = select(User).where(User.id == id)
+    statement = (
+        select(User)
+        .options(selectinload(User.settings))
+        .where(
+            User.id == id,
+        )
+    )
     result = await session.execute(statement)
     return result.scalar_one_or_none()
 
@@ -39,6 +46,8 @@ async def update_user(
 
 async def create_user(session: AsyncSession, user_data: CreateUser) -> User:
     user = User(**user_data.model_dump())
+
+    user.settings = UserSettings()
     try:
         session.add(user)
         await session.commit()

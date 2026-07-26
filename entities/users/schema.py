@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from core.models.users import UserRole, RegisterWays, AvatarColors
+from entities.user_settings.schema import UserSettingsSchema
 from utils.custom_validators.nanoid_string_validator import NanoIDString
 
 
@@ -33,6 +34,8 @@ class UpdateUserPartial(UpdateUser):
 
 class UserSchema(UserBase):
     model_config = ConfigDict(from_attributes=True)
+
+    settings: UserSettingsSchema
 
     id: NanoIDString
 

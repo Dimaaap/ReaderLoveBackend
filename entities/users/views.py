@@ -29,6 +29,7 @@ from entities.users.schema import (
 )
 from . import service, crud
 from .exceptions import GitHubException
+from ..user_settings.schema import UserSettingsSchema
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -222,6 +223,7 @@ async def get_current_user(
         "avatar_color": user.avatar_color,
         "role": user.role,
         "register_way": user.register_way,
+        "settings": UserSettingsSchema.model_validate(user.settings),
     }
 
 
