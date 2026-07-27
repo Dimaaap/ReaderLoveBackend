@@ -1,6 +1,7 @@
+from typing import Literal
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.models.user_book_association import BookReadStatus
 from entities.book_authors.schema import BookAuthorsSchema
@@ -73,6 +74,14 @@ class BookSchemaWithSessions(BookDetailSchema):
     current_streak: int = 0
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ExportLibraryOptions(BaseModel):
+    format: Literal["csv", "json", "pdf"] = Field(default="csv")
+    filter_status: Literal[
+        "all", "want_to_read", "reading", "finished", "paused", "abandoned"
+    ] = Field(default="all")
+    include_notes: bool = Field(default=True)
 
 
 class UserBookSchema(BookSchema):

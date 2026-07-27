@@ -1,5 +1,7 @@
 import json
+import io
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.redis_config import redis_client
@@ -10,9 +12,11 @@ from entities.books.schema import (
     BookUpdatePartial,
     BookDetailSchema,
     BookSchemaWithSessions,
+    ExportLibraryOptions,
 )
 
 from . import crud
+from . import utils
 
 router = APIRouter(tags=["Books"])
 
@@ -177,6 +181,48 @@ async def get_user_active_books(
         cache_key, json.dumps([b.model_dump() for b in books]), ex=600
     )
     return books
+
+
+@router.post("/{username}/export")
+async def export_user_library(
+    username: str,
+    options: ExportLibraryOptions,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    data = await crud.get_user_library_for_export(
+        session, username, options.filter_status, options.include_notes
+    )
+
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Не знайдено книг за обраними критеріями для експорту",
+        )
+
+    file_bytes = None
+    media_type = None
+    filename = None
+
+    if options.format == "csv":
+        file_bytes = utils.generate_csv_export(data, options.include_notes)
+        media_type = "text/csv"
+        filename = f"{username}_library.csv"
+
+    elif options.format == "json":
+        file_bytes = utils.generate_json_export(data)
+        media_type = "application/json"
+        filename = f"{username}_library.json"
+
+    elif options.format == "pdf":
+        file_bytes = utils.generate_pdf_export(data)
+        media_type = "application/pdf"
+        filename = f"{username}_library.pdf"
+
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment: filename="{filename}"'},
+    )
 
 
 @router.delete("/{book_id}")

@@ -163,6 +163,70 @@ async def get_book_by_slug_for_user_with_sessions_stats(
     return BookSchemaWithSessions.model_validate(book_base_data)
 
 
+async def get_user_library_for_export(
+    session: AsyncSession,
+    username: str,
+    status_filter: str = "all",
+    include_notes: bool = True,
+) -> list[dict]:
+    statement = (
+        select(Book, UserBookAssociation.status)
+        .join(UserBookAssociation, Book.id == UserBookAssociation.book_id)
+        .join(User, UserBookAssociation.user_id == User.id)
+        .where(User.username == username)
+        .options(selectinload(Book.authors), selectinload(Book.genres))
+    )
+
+    status_map = {
+        "want_to_read": BookReadStatus.WANT_TO_READ,
+        "reading": BookReadStatus.READING,
+        "finished": BookReadStatus.FINISHED,
+        "paused": BookReadStatus.PAUSED,
+        "abandoned": BookReadStatus.ABANDONED,
+    }
+
+    if status_filter in status_map:
+        statement = statement.where(
+            UserBookAssociation.status == status_map[status_filter]
+        )
+
+    if include_notes:
+        statement = statement.options(selectinload(Book.notes))
+
+    result = await session.execute(statement)
+    rows = result.all()
+
+    export_data = []
+
+    for book, status_val in rows:
+        item = {
+            "title": book.title,
+            "authors": ", ".join(
+                [
+                    (
+                        f"{a.first_name} {a.last_name}"
+                        if hasattr(a, "first_name")
+                        else a.last_name
+                    )
+                    for a in book.authors
+                ]
+            ),
+            "genres": ", ".join([g.title for g in book.genres]),
+            "pages": getattr(book, "pages", None),
+            "status": (
+                status_val.value if hasattr(status_val, "value") else str(status_val)
+            ),
+        }
+
+        if include_notes:
+            notes_list = getattr(book, "notes", [])
+            item["notes"] = [n.note_text for n in notes_list] if notes_list else []
+
+        export_data.append(item)
+
+    return export_data
+
+
 async def get_book_by_slug_for_user(
     session: AsyncSession, book_slug: str, username: str
 ) -> BookDetailSchema | None:
