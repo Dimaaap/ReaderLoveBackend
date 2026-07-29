@@ -3,7 +3,12 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
-from entities.users.schema import CreateUser, UpdateUser, UpdateUserPartial
+from entities.users.schema import (
+    CreateUser,
+    UpdateUser,
+    UpdateUserPartial,
+    UpdateUserSettings,
+)
 
 from core.models import User, UserSettings
 
@@ -65,6 +70,20 @@ async def update_avatar(session: AsyncSession, user: User, avatar: str) -> User:
     await session.refresh(user)
 
     return user
+
+
+async def update_user_settings(
+    session: AsyncSession, user: User, settings_update: UpdateUserSettings
+) -> UserSettings:
+    update_data = settings_update.model_dump(exclude_unset=True)
+
+    for key, value in update_data.items():
+        setattr(user.settings, key, value)
+
+    await session.commit()
+    await session.refresh(user.settings)
+
+    return user.settings
 
 
 async def delete_avatar(session: AsyncSession, user: User) -> User:

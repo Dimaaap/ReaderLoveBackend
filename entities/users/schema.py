@@ -71,6 +71,30 @@ class ChangePasswordSchema(BaseModel):
     new_password: str = Field(min_length=6)
 
 
+class UpdateUserSettings(BaseModel):
+    email_notifications: bool | None = None
+    reading_reminders: bool | None = None
+    book_recommendations: bool | None = None
+    is_public_profile: bool | None = None
+    is_show_reading_progress: bool | None = None
+    allow_friends_recommendations: bool | None = None
+    show_statistics: bool | None = None
+    show_bookshelf: bool | None = None
+    show_favorite_books: bool | None = None
+    show_notes: bool | None = None
+    show_quotes: bool | None = None
+    show_goals: bool | None = None
+    show_current_book: bool | None = None
+    show_followers: bool | None = None
+    allow_private_messages: bool | None = None
+    show_online_status: bool | None = None
+    show_last_seen: bool | None = None
+
+
+class DeleteAccountSchema(BaseModel):
+    password: str
+
+
 class LoginSchema(BaseModel):
     email: EmailStr
     password: str
