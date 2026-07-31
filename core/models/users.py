@@ -79,6 +79,10 @@ class User(Base):
         Boolean, default=False, server_default=false(), nullable=False
     )
 
+    is_online: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+
     register_way: Mapped[RegisterWays] = mapped_column(
         SqlEnum(RegisterWays, values_callable=lambda enum: [e.value for e in enum]),
         default=RegisterWays.SITE,
@@ -106,6 +110,14 @@ class User(Base):
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",
+    )
+
+    friends: Mapped[list["User"]] = relationship(
+        "User",
+        secondary="user_friends",
+        primaryjoin="User.id == UserFriends.user_id",
+        secondaryjoin="User.id == UserFriends.friend_id",
+        backref="friended_by",
     )
 
     def __str__(self) -> str:

@@ -8,9 +8,10 @@ from entities.users.schema import (
     UpdateUser,
     UpdateUserPartial,
     UpdateUserSettings,
+    UserByUsernameSchema,
 )
 
-from core.models import User, UserSettings
+from core.models import User, UserSettings, ReadingSession
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> User:
@@ -22,13 +23,31 @@ async def get_user_by_email(session: AsyncSession, email: str) -> User:
 async def get_user_by_id(session: AsyncSession, id: str) -> User:
     statement = (
         select(User)
-        .options(selectinload(User.settings))
+        .options(selectinload(User.settings), selectinload(User.friends))
         .where(
             User.id == id,
         )
     )
     result = await session.execute(statement)
     return result.scalar_one_or_none()
+
+
+async def get_user_by_username(
+    session: AsyncSession, username: str
+) -> UserByUsernameSchema:
+    statement = (
+        select(User)
+        .options(
+            selectinload(User.settings),
+            selectinload(User.friends),
+            selectinload(User.reading_sessions).selectinload(ReadingSession.book),
+        )
+        .where(User.username == username)
+    )
+
+    result = await session.execute(statement)
+    user = result.scalar_one_or_none()
+    return UserByUsernameSchema.model_validate(user)
 
 
 async def update_user(

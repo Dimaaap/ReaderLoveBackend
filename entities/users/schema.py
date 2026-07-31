@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from core.models.users import UserRole, RegisterWays, AvatarColors
+from entities.reading_sessions.schema import ReadingSessionSchema
 from entities.user_settings.schema import UserSettingsSchema
 from utils.custom_validators.nanoid_string_validator import NanoIDString
 
@@ -16,6 +17,7 @@ class UserBase(BaseModel):
     date_joined: datetime | None = None
     role: UserRole = UserRole.USER
     is_verified: bool = False
+    is_online: bool = False
 
 
 class CreateUser(UserBase):
@@ -93,6 +95,22 @@ class UpdateUserSettings(BaseModel):
 
 class DeleteAccountSchema(BaseModel):
     password: str
+
+
+class UserByUsernameSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    avatar: str | None = None
+    about_info: str | None = None
+    username: str
+    is_online: bool = False
+    email: EmailStr
+    avatar_color: AvatarColors | None = None
+    role: UserRole
+    settings: UserSettingsSchema
+    reading_sessions: list[ReadingSessionSchema]
+    friends: list
 
 
 class LoginSchema(BaseModel):

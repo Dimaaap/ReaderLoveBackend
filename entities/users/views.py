@@ -27,6 +27,7 @@ from entities.users.schema import (
     UpdateUserPartial,
     ChangePasswordSchema,
     UpdateUserSettings,
+    UserByUsernameSchema,
 )
 from . import service, crud
 from .exceptions import GitHubException
@@ -75,6 +76,15 @@ async def forgot_password(
         return {"message": "Reset OTP send successfully", "email": user_email}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/user/{username}")
+async def get_user_by_username(
+    username: str, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
+):
+    user = await crud.get_user_by_username(session, username)
+
+    return user
 
 
 @router.post("/reset-password")

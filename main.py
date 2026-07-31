@@ -2,7 +2,7 @@ import os
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +11,7 @@ from core.redis_config import redis_client
 from custom_errors.user_existing_error import UserExistingError
 from entities.users.exceptions import GitHubException
 from entities import router
+from managers import ConnectionManager
 
 
 @asynccontextmanager
@@ -29,13 +30,25 @@ origins = [f"http://{os.getenv("FRONTEND_HOST")}:{os.getenv("FRONTEND_PORT")}"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.mount("/media", StaticFiles(directory="media"), name="media")
+
+manager = ConnectionManager()
+
+
+@app.websocket("/ws/presence/{user_id}")
+async def websocket_presence(websocket: WebSocket, user_id: str):
+    await manager.connect(user_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(user_id)
 
 
 @app.exception_handler(UserExistingError)
