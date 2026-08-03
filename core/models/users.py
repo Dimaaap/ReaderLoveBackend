@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from .book_notes import BookNotes
     from .user_goals import UserGoals
     from .user_settings import UserSettings
+    from .user_book_association import UserBookAssociation
 
 
 class UserRole(str, Enum):
@@ -118,6 +119,10 @@ class User(Base):
         primaryjoin="User.id == UserFriends.user_id",
         secondaryjoin="User.id == UserFriends.friend_id",
         backref="friended_by",
+    )
+
+    user_books: Mapped[list["UserBookAssociation"]] = relationship(
+        "UserBookAssociation", back_populates="user", cascade="all, delete-orphan"
     )
 
     def __str__(self) -> str:

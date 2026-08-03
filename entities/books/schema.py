@@ -62,10 +62,10 @@ class MiniReadingSessionSchema(BaseModel):
 
 class BookDetailSchema(BookSchema):
     reading_sessions_count: int = 0
-    read_pages: int = 0
+    read_pages: int = Field(default=0, alias="last_read_page")
     active_session_id: int | None = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class BookSchemaWithSessions(BookDetailSchema):
@@ -84,7 +84,18 @@ class ExportLibraryOptions(BaseModel):
     include_notes: bool = Field(default=True)
 
 
+class UserBookItemSchema(BaseModel):
+    status: BookReadStatus
+    last_read_pages: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    book: BookSchema
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class UserBookSchema(BookSchema):
     status: BookReadStatus
+    last_read_pages: int = 0
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,11 +1,17 @@
+from typing import TYPE_CHECKING
+
 from datetime import datetime
 from enum import Enum
 import os
 
-from sqlalchemy import ForeignKey, String, DateTime, Enum as SqlEnum, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import ForeignKey, String, DateTime, Integer, Enum as SqlEnum, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import BaseWithoutId
+
+if TYPE_CHECKING:
+    from .users import User
+    from .books import Book
 
 
 class BookReadStatus(str, Enum):
@@ -36,6 +42,10 @@ class UserBookAssociation(BaseWithoutId):
         nullable=False,
     )
 
+    last_read_page: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         server_default=func.now(),
@@ -48,6 +58,9 @@ class UserBookAssociation(BaseWithoutId):
         onupdate=func.now(),
         nullable=False,
     )
+
+    user: Mapped["User"] = relationship(back_populates="user_books")
+    book: Mapped["Book"] = relationship(back_populates="user_associations")
 
     def __str__(self):
         return f"{self.__class__.__name__}(user_id={self.user_id}, book_id={self.book_id}, status={self.status})"

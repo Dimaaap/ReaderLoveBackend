@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from core.models.users import UserRole, RegisterWays, AvatarColors
-from entities.reading_sessions.schema import ReadingSessionSchema
+from entities.books.schema import UserBookItemSchema
 from entities.user_settings.schema import UserSettingsSchema
 from utils.custom_validators.nanoid_string_validator import NanoIDString
 
@@ -109,8 +109,9 @@ class UserByUsernameSchema(BaseModel):
     avatar_color: AvatarColors | None = None
     role: UserRole
     settings: UserSettingsSchema
-    reading_sessions: list[ReadingSessionSchema]
-    friends: list
+
+    user_books: list[UserBookItemSchema]
+    friends: list = []
 
 
 class LoginSchema(BaseModel):

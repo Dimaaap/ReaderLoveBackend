@@ -2,7 +2,7 @@ from fastapi import HTTPException, status
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from core.models import ReadingSession, User, UserBookAssociation
 from core.models.user_book_association import BookReadStatus
@@ -104,22 +104,40 @@ async def create_reading_session(
             detail=f"user with username {data.username} was not found",
         )
 
-    association_statement = select(UserBookAssociation).where(
-        UserBookAssociation.user_id == user_db.id,
-        UserBookAssociation.book_id == data.book_id,
+    association_statement = (
+        select(UserBookAssociation)
+        .options(selectinload(UserBookAssociation.book))
+        .where(
+            UserBookAssociation.user_id == user_db.id,
+            UserBookAssociation.book_id == data.book_id,
+        )
     )
     association_result = await session.execute(association_statement)
     association = association_result.scalar_one_or_none()
 
+    current_page = data.end_page if data.end_page is not None else data.start_page
+
     if association:
-        if association.status != BookReadStatus.READING:
+        if (
+            association.status != BookReadStatus.READING
+            and association.status != BookReadStatus.FINISHED
+        ):
             association.status = BookReadStatus.READING
 
+        if current_page > association.last_read_page:
+            association.last_read_page = current_page
+
+            if association.book and current_page >= association.book.pages_count:
+                association.status = BookReadStatus.FINISHED
+
     else:
-        new_association = UserBookAssociation(
-            user_id=user_db.id, book_id=data.book_id, status=BookReadStatus.READING
+        association = UserBookAssociation(
+            user_id=user_db.id,
+            book_id=data.book_id,
+            status=BookReadStatus.READING,
+            last_read_page=current_page,
         )
-        session.add(new_association)
+        session.add(association)
 
     reading_session_data = data.model_dump(exclude={"user", "book", "username"})
     reading_session_data["user_id"] = user_db.id
@@ -142,8 +160,34 @@ async def update_reading_session(
     for key, value in update_data.items():
         setattr(reading_session, key, value)
 
+    target_page = (
+        reading_session.end_page
+        if reading_session.end_page is not None
+        else reading_session.start_page
+    )
+
+    if target_page is not None:
+        assoc_stmt = (
+            select(UserBookAssociation)
+            .options(selectinload(UserBookAssociation.book))
+            .where(
+                UserBookAssociation.user_id == reading_session.user_id,
+                UserBookAssociation.book_id == reading_session.book_id,
+            )
+        )
+        assoc_result = await session.execute(assoc_stmt)
+        association = assoc_result.scalar_one_or_none()
+
+        if association:
+            if target_page > association.last_read_page:
+                association.last_read_page = target_page
+
+            if association.book and target_page >= association.book.pages_count:
+                association.status = BookReadStatus.FINISHED
+
     await session.commit()
     await session.refresh(reading_session)
+
     return reading_session
 
 
@@ -156,6 +200,34 @@ async def delete_reading_session(session: AsyncSession, session_id: int) -> bool
     if reading_session is None:
         return False
 
+    user_id = reading_session.user_id
+    book_id = reading_session.book_id
+
     await session.delete(reading_session)
+    await session.flush()
+
+    max_page_stmt = (
+        select(ReadingSession.end_page)
+        .where(
+            ReadingSession.user_id == user_id,
+            ReadingSession.book_id == book_id,
+            ReadingSession.end_page.isnot(None),
+        )
+        .order_by(ReadingSession.end_page.desc())
+        .limit(1)
+    )
+    max_page_result = await session.execute(max_page_stmt)
+    new_max_page = max_page_result.scalar_one_or_none() or 0
+
+    assoc_stmt = select(UserBookAssociation).where(
+        UserBookAssociation.user_id == user_id,
+        UserBookAssociation.book_id == book_id,
+    )
+    assoc_result = await session.execute(assoc_stmt)
+    association = assoc_result.scalar_one_or_none()
+
+    if association:
+        association.last_read_page = new_max_page
+
     await session.commit()
     return True

@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from .users import User
     from .reading_sessions import ReadingSession
     from .book_notes import BookNotes
+    from .user_book_association import UserBookAssociation
 
 
 class Book(Base):
@@ -37,6 +38,10 @@ class Book(Base):
 
     notes: Mapped[list["BookNotes"]] = relationship(
         "BookNotes", back_populates="book", cascade="all, delete-orphan"
+    )
+
+    user_associations: Mapped[list["UserBookAssociation"]] = relationship(
+        "UserBookAssociation", back_populates="book"
     )
 
     def __str__(self):

@@ -11,7 +11,7 @@ from entities.users.schema import (
     UserByUsernameSchema,
 )
 
-from core.models import User, UserSettings, ReadingSession
+from core.models import User, UserSettings, Book, UserBookAssociation
 
 
 async def get_user_by_email(session: AsyncSession, email: str) -> User:
@@ -40,7 +40,12 @@ async def get_user_by_username(
         .options(
             selectinload(User.settings),
             selectinload(User.friends),
-            selectinload(User.reading_sessions).selectinload(ReadingSession.book),
+            selectinload(User.user_books)
+            .selectinload(UserBookAssociation.book)
+            .selectinload(Book.authors),
+            selectinload(User.user_books)
+            .selectinload(UserBookAssociation.book)
+            .selectinload(Book.genres),
         )
         .where(User.username == username)
     )
