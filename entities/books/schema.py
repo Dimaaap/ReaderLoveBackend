@@ -86,7 +86,7 @@ class ExportLibraryOptions(BaseModel):
 
 class UserBookItemSchema(BaseModel):
     status: BookReadStatus
-    last_read_pages: int = 0
+    last_read_page: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
     book: BookSchema
@@ -96,6 +96,6 @@ class UserBookItemSchema(BaseModel):
 
 class UserBookSchema(BookSchema):
     status: BookReadStatus
-    last_read_pages: int = 0
+    last_read_page: int = 0
 
     model_config = ConfigDict(from_attributes=True)

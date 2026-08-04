@@ -1,7 +1,7 @@
 from fastapi import HTTPException, status
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from core.models import BookNotes, User
@@ -146,9 +146,7 @@ async def delete_book_note(session: AsyncSession, note_id: int) -> (bool, BookNo
         .where(BookNotes.id == note_id)
         .options(joinedload(BookNotes.user))
     )
-    print(result)
     book_note = result.scalar_one_or_none()
-    print(book_note)
     deleted_note = book_note
 
     if book_note is None:

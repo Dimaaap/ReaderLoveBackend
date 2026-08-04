@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from .reading_sessions import ReadingSession
     from .book_notes import BookNotes
     from .user_book_association import UserBookAssociation
+    from .book_reviews import BookReview
 
 
 class Book(Base):
@@ -31,6 +32,10 @@ class Book(Base):
     )
     users: Mapped[list["User"]] = relationship(
         secondary="user_book_association", back_populates="books"
+    )
+
+    reviews: Mapped[list["BookReview"]] = relationship(
+        "BookReview", back_populates="book", cascade="all, delete-orphan"
     )
     reading_sessions: Mapped[list["ReadingSession"]] = relationship(
         "ReadingSession", back_populates="book", cascade="all, delete-orphan"

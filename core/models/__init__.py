@@ -20,6 +20,7 @@ __all__ = (
     "UserGoalsProgress",
     "UserSettings",
     "UserFriends",
+    "BookReview",
 )
 
 from .base import Base
@@ -42,3 +43,4 @@ from .user_goals import UserGoals
 from .user_goals_progress import UserGoalsProgress
 from .user_settings import UserSettings
 from .user_friends import UserFriends
+from .book_reviews import BookReview

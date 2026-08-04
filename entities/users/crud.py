@@ -34,7 +34,7 @@ async def get_user_by_id(session: AsyncSession, id: str) -> User:
 
 async def get_user_by_username(
     session: AsyncSession, username: str
-) -> UserByUsernameSchema:
+) -> UserByUsernameSchema | None:
     statement = (
         select(User)
         .options(
@@ -42,16 +42,20 @@ async def get_user_by_username(
             selectinload(User.friends),
             selectinload(User.user_books)
             .selectinload(UserBookAssociation.book)
-            .selectinload(Book.authors),
-            selectinload(User.user_books)
-            .selectinload(UserBookAssociation.book)
-            .selectinload(Book.genres),
+            .options(
+                selectinload(Book.authors),
+                selectinload(Book.genres),
+            ),
         )
         .where(User.username == username)
     )
 
     result = await session.execute(statement)
     user = result.scalar_one_or_none()
+
+    if not user:
+        return None
+
     return UserByUsernameSchema.model_validate(user)
 
 
