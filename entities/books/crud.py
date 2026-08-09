@@ -13,6 +13,7 @@ from core.models import (
     UserBookAssociation,
     User,
     ReadingSession,
+    BookReview,
 )
 from core.models.user_book_association import BookReadStatus
 from entities.books.utils import calculate_streak
@@ -231,7 +232,11 @@ async def get_book_by_slug_for_user(
     book_statement = (
         select(Book)
         .where(Book.slug == book_slug)
-        .options(selectinload(Book.authors), selectinload(Book.genres))
+        .options(
+            selectinload(Book.authors),
+            selectinload(Book.genres),
+            selectinload(Book.reviews).selectinload(BookReview.user),
+        )
     )
     book_result = await session.execute(book_statement)
     book = book_result.scalar_one_or_none()
@@ -252,8 +257,7 @@ async def get_book_by_slug_for_user(
     user_row = result.first()
 
     if not user_row:
-        book_data = BookSchema.model_validate(book).model_dump()
-        return BookDetailSchema(**book_data)
+        return BookDetailSchema.model_validate(book)
 
     user_id, last_read_page = user_row
 
@@ -267,16 +271,13 @@ async def get_book_by_slug_for_user(
     stats_result = await session.execute(stats_statement)
     stats = stats_result.one()
 
-    book_base_data = BookSchema.model_validate(book).model_dump()
-    book_base_data.update(
-        {
-            "reading_sessions_count": stats.sessions_count,
-            "read_pages": last_read_page or 0,
-            "active_session_id": stats.active_session_id,
-        }
-    )
+    book_detail = BookDetailSchema.model_validate(book)
 
-    return BookDetailSchema.model_validate(book_base_data)
+    book_detail.reading_sessions_count = stats.sessions_count
+    book_detail.read_pages = last_read_page or 0
+    book_detail.active_session_id = stats.active_session_id
+
+    return book_detail
 
 
 async def get_current_main_reading_book(
@@ -347,7 +348,6 @@ async def create_book(session: AsyncSession, data: BookCreate) -> Book:
         )
         author_result = await session.execute(author_statement)
         fetched_authors = list(author_result.scalars().all())
-        print(f"Знайдені автори: {fetched_authors}")
         book.authors = fetched_authors
 
     if data.genres:
@@ -355,7 +355,6 @@ async def create_book(session: AsyncSession, data: BookCreate) -> Book:
         genres_result = await session.execute(genres_statement)
         fetched_genres = list(genres_result.scalars().all())
 
-        print(f"Знайдені жанри: {fetched_genres}")
         book.genres = fetched_genres
 
     session.add(book)

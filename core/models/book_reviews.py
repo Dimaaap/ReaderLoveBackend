@@ -6,6 +6,7 @@ from sqlalchemy import (
     Text,
     String,
     Integer,
+    Boolean,
     DateTime,
     ForeignKey,
     CheckConstraint,
@@ -29,6 +30,8 @@ class BookReview(Base):
 
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=True)
+
+    is_spoiler: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="CASCADE"))
     user_id: Mapped[str] = mapped_column(

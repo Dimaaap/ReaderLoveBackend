@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 class BookReviewBase(BaseModel):
     rating: int
     text: str | None = None
+    is_spoiler: bool = False
 
     book_id: int
     user_id: str
@@ -16,6 +17,7 @@ class BookReviewBase(BaseModel):
 class BookReviewCreate(BaseModel):
     rating: int
     text: str | None = None
+    is_spoiler: bool = False
     book_id: int
     username: str
 
@@ -49,6 +51,7 @@ class BookReviewSchema(BaseModel):
     id: int
     user_id: str
     rating: int
+    is_spoiler: bool = True
     text: str | None = None
 
     user: UserBookReviewSchema

@@ -9,6 +9,7 @@ from entities.book_genres.schema import (
     BookGenreSchema,
     BookGenreCreate,
     BookGenreUpdatePartial,
+    BookGenresWithBookSchema,
 )
 from . import crud
 
@@ -48,6 +49,28 @@ async def get_genre_by_id(
     if data:
         result = BookGenreSchema.model_validate(data)
 
+        await redis_client.set(cache_key, result.model_dump_json(), ex=300)
+
+        return result
+    return data
+
+
+@router.get("/by-slug/{genre_slug}")
+async def get_genre_by_slug(
+    genre_slug: str,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    cache_key = f"book_genres:slug:{genre_slug}"
+
+    cached = await redis_client.get(cache_key)
+
+    if cached:
+        return json.loads(cached)
+
+    data = await crud.get_genre_by_slug(session, genre_slug)
+
+    if data:
+        result = BookGenresWithBookSchema.model_validate(data)
         await redis_client.set(cache_key, result.model_dump_json(), ex=300)
 
         return result

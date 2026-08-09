@@ -1,11 +1,12 @@
-from typing import Literal
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.models.user_book_association import BookReadStatus
 from entities.book_authors.schema import BookAuthorsSchema
 from entities.book_genres.schema import BookGenreSchema
+from entities.book_reviews.schema import BookReviewSchema
 
 
 class BookBase(BaseModel):
@@ -16,9 +17,6 @@ class BookBase(BaseModel):
     description: str | None = None
     publish_date: str | int | None = None
     language: str | None = None
-
-    authors: list[BookAuthorsSchema]
-    genres: list[BookGenreSchema]
 
 
 class AuthorInsideBook(BaseModel):
@@ -41,10 +39,12 @@ class BookUpdatePartial(BookUpdate):
     pages_count: int | None
     authors: list[BookAuthorsSchema] | None
     genres: list[BookGenreSchema] | None
+    reviews: list[BookReviewSchema] | None
 
 
 class BookSchema(BookBase):
     id: int
+    genres: list[BookGenreSchema]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -61,6 +61,7 @@ class MiniReadingSessionSchema(BaseModel):
 
 
 class BookDetailSchema(BookSchema):
+    reviews: list[BookReviewSchema] = []
     reading_sessions_count: int = 0
     read_pages: int = Field(default=0, alias="last_read_page")
     active_session_id: int | None = None
@@ -97,5 +98,7 @@ class UserBookItemSchema(BaseModel):
 class UserBookSchema(BookSchema):
     status: BookReadStatus
     last_read_page: int = 0
+    authors: list[BookAuthorsSchema]
+    genres: list[BookGenreSchema]
 
     model_config = ConfigDict(from_attributes=True)

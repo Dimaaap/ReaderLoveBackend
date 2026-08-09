@@ -10,6 +10,8 @@ from entities.book_reviews.schema import (
     BookReviewUpdatePartial,
 )
 
+from core.models import Book
+
 from . import crud
 
 router = APIRouter(tags=["Book Router"])
@@ -40,8 +42,9 @@ async def create_book_review(
     book_review = await crud.create_book_review(session, data)
 
     await redis_client.delete(f"book_reviews:all")
-    book_cache_key = f"book_reviews:book:{data.book_id}"
-    await redis_client.delete(book_cache_key)
+    book = await session.get(Book, data.book_id)
+    if book:
+        await redis_client.delete(f"books:{book.slug}")
     return book_review
 
 
@@ -56,16 +59,17 @@ async def get_book_review_by_username(
 @router.get("/by-book-id", response_model=list[BookReviewSchema])
 async def get_book_reviews(
     book_id: int,
-    limit: int | None = None,
+    limit: int = 5,
+    offset: int = 0,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-    cache_key = f"book_reviews:book:{book_id}:limit:{limit}"
+    cache_key = f"book_reviews:book:{book_id}:limit:{limit}:offset:{offset}"
     cached = await redis_client.get(cache_key)
 
     if cached:
         return json.loads(cached)
 
-    data = await crud.get_book_reviews(book_id, session, limit)
+    data = await crud.get_book_reviews(book_id, session, limit, offset)
     serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data

@@ -1,9 +1,10 @@
 import asyncio
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.models import BookGenres
+from core.models import BookGenres, Book
 from core.models import db_helper
 from .data import genres
 from entities.book_genres.schema import (
@@ -41,6 +42,24 @@ async def get_genre_by_id(session: AsyncSession, id: int) -> BookGenres | None:
 
     if genre is None:
         return None
+    return genre
+
+
+async def get_genre_by_slug(
+    session: AsyncSession, genre_slug: str
+) -> BookGenres | None:
+    statement = (
+        select(BookGenres)
+        .where(BookGenres.slug == genre_slug)
+        .options(selectinload(BookGenres.books).selectinload(Book.authors))
+    )
+
+    result = await session.execute(statement)
+    genre = result.scalar_one_or_none()
+
+    if genre is None:
+        return None
+
     return genre
 
 

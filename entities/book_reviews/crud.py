@@ -45,17 +45,16 @@ async def get_user_reviews(
 
 
 async def get_book_reviews(
-    book_id: int, session: AsyncSession, limit: int | None = None
+    book_id: int, session: AsyncSession, limit: int = 5, offset: int = 0
 ) -> list[BookReviewSchema]:
     statement = (
         select(BookReview)
         .where(BookReview.book_id == book_id)
         .options(joinedload(BookReview.book), joinedload(BookReview.user))
         .order_by(BookReview.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
-
-    if limit is not None:
-        statement = statement.limit(limit)
 
     result = await session.execute(statement)
     book_reviews = result.scalars().unique().all()
