@@ -1,6 +1,7 @@
 import json
 import io
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,8 @@ from entities.books.schema import (
     BookDetailSchema,
     BookSchemaWithSessions,
     ExportLibraryOptions,
+    UserBookStatusUpdate,
+    UserBookSchema,
 )
 
 from . import crud
@@ -23,15 +26,26 @@ router = APIRouter(tags=["Books"])
 
 @router.get("/")
 async def get_all_books(
+    search: Optional[str] = Query(None),
+    limit: int | None = Query(default=None, ge=1, le=100),
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-    cache_key = "books:all"
+
+    normalized_search = search.strip().lower() if search else ""
+
+    cache_key = (
+        f"books:all:search:{normalized_search}:limit:{limit}"
+        if normalized_search
+        else f"books:all:limit:{limit}"
+    )
 
     cached = await redis_client.get(cache_key)
     if cached:
         return json.loads(cached)
 
-    books = await crud.get_all_books(session)
+    books = await crud.get_all_books(
+        session=session, limit=limit, search=normalized_search
+    )
     result = [BookSchema.model_validate(book) for book in books]
 
     await redis_client.set(
@@ -80,6 +94,53 @@ async def get_book_by_slug(
     result = BookSchema.model_validate(book)
     await redis_client.set(cache_key, result.model_dump_json(), ex=300)
     return result
+
+
+@router.get("/by-slug/{book_slug}/{username}", response_model=UserBookSchema)
+async def get_book_by_slug_for_user(
+    book_slug: str,
+    username: str,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    cache_key = f"book:{username}:{book_slug}"
+
+    cached = await redis_client.get(cache_key)
+
+    if cached:
+        return json.loads(cached)
+
+    book_data = await crud.get_book_by_slug_for_user_with_status(
+        session, book_slug, username
+    )
+
+    if not book_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+
+    result = UserBookSchema.model_validate(book_data)
+
+    await redis_client.set(cache_key, result.model_dump_json(), ex=600)
+
+    return result
+
+
+@router.delete("/status/{book_slug}/{username}", status_code=status.HTTP_200_OK)
+async def delete_user_book_status(
+    book_slug: str,
+    username: str,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    deleted = await crud.delete_user_book_status(session, username, book_slug)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+        )
+
+    cache_key = f"book:{username}:{book_slug}"
+    await redis_client.delete(cache_key)
+    return {"status": "ok"}
 
 
 @router.get("/{username}/slug/{book_slug}", response_model=BookDetailSchema)
@@ -144,6 +205,30 @@ async def create_book(
     new_book = await crud.create_book(session, data)
     await redis_client.delete("books:all")
     return new_book
+
+
+@router.post("/{username}/status/{book_slug}")
+async def update_or_add_book_status(
+    username: str,
+    book_slug: str,
+    data: UserBookStatusUpdate,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    try:
+        assoc = await crud.set_user_book_status(session, username, book_slug, data)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    await redis_client.delete(f"books:{username}:active")
+    await redis_client.delete(f"book:{username}:{book_slug}")
+
+    return {
+        "ok": True,
+        "book_slug": book_slug,
+        "status": (
+            assoc.status.value if hasattr(assoc.status, "value") else str(assoc.status)
+        ),
+        "last_read_page": assoc.last_read_page,
+    }
 
 
 @router.patch("/{book_id}", response_model=BookSchema)

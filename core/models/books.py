@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from .base import Base
 
-from sqlalchemy import String, Text, Integer
+from sqlalchemy import String, Text, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -13,9 +13,11 @@ if TYPE_CHECKING:
     from .book_notes import BookNotes
     from .user_book_association import UserBookAssociation
     from .book_reviews import BookReview
+    from .book_publishers import BookPublisher
 
 
 class Book(Base):
+    isbn: Mapped[int] = mapped_column(String(12), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     image_link: Mapped[str] = mapped_column(String(255), nullable=True)
@@ -23,6 +25,14 @@ class Book(Base):
     description: Mapped[Text] = mapped_column(Text, nullable=True)
     publish_date: Mapped[str] = mapped_column(String(100), nullable=True)
     language: Mapped[str] = mapped_column(String(50), nullable=True)
+
+    publisher_id: Mapped[int | None] = mapped_column(
+        ForeignKey("book_publishers.id"), nullable=True
+    )
+
+    publisher: Mapped["BookPublisher | None"] = relationship(
+        "BookPublisher", back_populates="books"
+    )
 
     authors: Mapped[list["BookAuthors"]] = relationship(
         secondary="author_book_association", back_populates="books"

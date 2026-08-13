@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import select, func, case, desc, cast, Date
+from sqlalchemy import select, func, case, desc, cast, Date, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,15 +27,42 @@ from entities.books.schema import (
     BookDetailSchema,
     BookSchemaWithSessions,
     MiniReadingSessionSchema,
+    UserBookStatusUpdate,
 )
 
 
-async def get_all_books(session: AsyncSession) -> list[BookSchema]:
+async def get_all_books(
+    session: AsyncSession, limit: int | None = None, search: str | None = None
+) -> list[BookSchema]:
     statement = (
         select(Book)
         .options(selectinload(Book.authors), selectinload(Book.genres))
         .order_by(Book.id)
     )
+
+    if search:
+        search = search.strip()
+
+        author_full_name = func.concat(
+            BookAuthors.first_name, " ", BookAuthors.last_name
+        )
+
+        statement = statement.where(
+            or_(
+                Book.title.ilike(f"%{search}%"),
+                Book.isbn.ilike(f"%{search}%"),
+                Book.authors.any(
+                    or_(
+                        BookAuthors.first_name.ilike(f"%{search}%"),
+                        BookAuthors.last_name.ilike(f"%{search}%"),
+                        author_full_name.ilike(f"%{search}%"),
+                    )
+                ),
+            )
+        )
+
+    if limit is not None:
+        statement = statement.limit(limit)
 
     result = await session.execute(statement)
 
@@ -63,6 +90,79 @@ async def get_book_by_slug(session: AsyncSession, book_slug: str) -> Book | None
 
     result = await session.execute(statement)
     return result.scalar_one_or_none()
+
+
+async def get_book_by_slug_for_user_with_status(
+    session: AsyncSession, book_slug: str, username: str
+) -> Book | None:
+    statement = (
+        select(
+            Book,
+            UserBookAssociation.status,
+            UserBookAssociation.last_read_page,
+            User.id.label("user_id"),
+        )
+        .outerjoin(UserBookAssociation, (UserBookAssociation.book_id == Book.id))
+        .outerjoin(
+            User, (UserBookAssociation.user_id == User.id) & (User.username == username)
+        )
+        .where(Book.slug == book_slug)
+        .options(
+            selectinload(Book.authors),
+            selectinload(Book.genres),
+            selectinload(Book.reviews).selectinload(BookReview.user),
+        )
+    )
+
+    result = await session.execute(statement)
+    row = result.first()
+
+    if not row:
+        return None
+
+    book, status, last_read_page, user_id = row
+    book_detail = BookDetailSchema.model_validate(book)
+
+    if user_id:
+        stats_statement = select(
+            func.count(ReadingSession.id).label("sessions_count"),
+            func.max(
+                case((ReadingSession.ended_at.is_(None), ReadingSession.id), else_=None)
+            ).label("active_session_id"),
+        ).where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
+
+        stats_result = await session.execute(stats_statement)
+        stats = stats_result.one()
+
+        book_detail.reading_sessions_count = stats.sessions_count
+        book_detail.active_session_id = stats.active_session_id
+
+    book_detail.read_pages = last_read_page or 0
+    book_detail.status = status
+
+    return book_detail.model_dump(by_alias=False)
+
+
+async def delete_user_book_status(
+    session: AsyncSession, username: str, book_slug: str
+) -> bool:
+    statement = (
+        select(UserBookAssociation)
+        .join(User, UserBookAssociation.user_id == User.id)
+        .join(Book, UserBookAssociation.book_id == Book.id)
+        .where(User.username == username, Book.slug == book_slug)
+    )
+
+    result = await session.execute(statement)
+    assoc = result.scalar_one_or_none()
+    print(assoc)
+
+    if assoc:
+        await session.delete(assoc)
+        await session.commit()
+        return True
+
+    return False
 
 
 async def get_book_by_slug_for_user_with_sessions_stats(
@@ -159,6 +259,47 @@ async def get_book_by_slug_for_user_with_sessions_stats(
     )
 
     return BookSchemaWithSessions.model_validate(book_base_data)
+
+
+async def set_user_book_status(
+    session: AsyncSession, username: str, book_slug: str, data: UserBookStatusUpdate
+) -> UserBookAssociation:
+    user_statement = select(User.id).where(User.username == username)
+    user_res = await session.execute(user_statement)
+    user_id = user_res.scalar_one_or_none()
+
+    if not user_id:
+        raise ValueError("User not found")
+
+    book_statement = select(Book.id).where(Book.slug == book_slug)
+    book_res = await session.execute(book_statement)
+    book_id = book_res.scalar_one_or_none()
+
+    if not book_id:
+        raise ValueError("Book not found")
+
+    assoc_statement = select(UserBookAssociation).where(
+        UserBookAssociation.user_id == user_id, UserBookAssociation.book_id == book_id
+    )
+
+    assoc_res = await session.execute(assoc_statement)
+    assoc = assoc_res.scalar_one_or_none()
+
+    if assoc:
+        assoc.status = data.status
+        if data.last_read_page is not None:
+            assoc.last_read_page = data.last_read_page
+    else:
+        assoc = UserBookAssociation(
+            user_id=user_id,
+            book_id=book_id,
+            status=data.status,
+            last_read_page=data.last_read_page or 0,
+        )
+        session.add(assoc)
+    await session.commit()
+    await session.refresh(assoc)
+    return assoc
 
 
 async def get_user_library_for_export(
@@ -409,11 +550,17 @@ async def get_user_active_books_for_notes(
     result = await session.execute(statement)
 
     user_books = []
-    for book, status, last_read_page in result.all():
-        book_data = BookSchema.model_validate(book).model_dump()
-        book_data["status"] = status
-        book_data["last_read_page"] = last_read_page or 0
-        user_books.append(UserBookSchema.model_validate(book_data))
+    for book, status_val, last_read_page in result.all():
+        base_book_schema = BookSchema.model_validate(book)
+
+        book_dict = base_book_schema.model_dump()
+
+        book_dict["status"] = (
+            status_val.value if hasattr(status_val, "value") else str(status_val)
+        )
+        book_dict["last_read_page"] = last_read_page or 0
+
+        user_books.append(UserBookSchema(**book_dict))
 
     return user_books
 

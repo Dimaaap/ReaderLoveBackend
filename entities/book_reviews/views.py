@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.redis_config import redis_client
@@ -13,6 +13,7 @@ from entities.book_reviews.schema import (
 from core.models import Book
 
 from . import crud
+from .tasks import check_review_for_spoiler_tasks
 
 router = APIRouter(tags=["Book Router"])
 
@@ -37,14 +38,28 @@ async def get_all_book_reviews(
 @router.post("/", response_model=BookReviewSchema, status_code=201)
 async def create_book_review(
     data: BookReviewCreate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     book_review = await crud.create_book_review(session, data)
-
     await redis_client.delete(f"book_reviews:all")
+    review_keys = [
+        key
+        async for key in redis_client.scan_iter(f"book_reviews:book:{data.book_id}:*")
+    ]
+    if review_keys:
+        await redis_client.delete(*review_keys)
     book = await session.get(Book, data.book_id)
     if book:
         await redis_client.delete(f"books:{book.slug}")
+
+        if book_review.text:
+            background_tasks.add_task(
+                check_review_for_spoiler_tasks,
+                review_id=book_review.id,
+                book_title=book.title,
+                review_text=book_review.text,
+            )
     return book_review
 
 

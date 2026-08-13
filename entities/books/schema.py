@@ -10,6 +10,7 @@ from entities.book_reviews.schema import BookReviewSchema
 
 
 class BookBase(BaseModel):
+    isbn: str | None = None
     title: str
     slug: str
     image_link: str
@@ -45,6 +46,7 @@ class BookUpdatePartial(BookUpdate):
 class BookSchema(BookBase):
     id: int
     genres: list[BookGenreSchema]
+    authors: list[BookAuthorsSchema]
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -60,13 +62,26 @@ class MiniReadingSessionSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PublisherSchema(BaseModel):
+    title: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class BookDetailSchema(BookSchema):
+    publisher: PublisherSchema | None = None
     reviews: list[BookReviewSchema] = []
     reading_sessions_count: int = 0
     read_pages: int = Field(default=0, alias="last_read_page")
     active_session_id: int | None = None
+    status: BookReadStatus | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class UserBookStatusUpdate(BaseModel):
+    status: BookReadStatus
+    last_read_page: int | None = 0
 
 
 class BookSchemaWithSessions(BookDetailSchema):
@@ -96,9 +111,7 @@ class UserBookItemSchema(BaseModel):
 
 
 class UserBookSchema(BookSchema):
-    status: BookReadStatus
+    status: BookReadStatus | None = None
     last_read_page: int = 0
-    authors: list[BookAuthorsSchema]
-    genres: list[BookGenreSchema]
 
     model_config = ConfigDict(from_attributes=True)
