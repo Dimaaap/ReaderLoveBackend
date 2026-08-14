@@ -13,6 +13,7 @@ class BookPublisher(Base):
     __tablename__ = "book_publishers"
 
     title: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
 
     books: Mapped[list["Book"]] = relationship(
         "Book",

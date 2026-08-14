@@ -13,7 +13,7 @@ class BookBase(BaseModel):
     isbn: str | None = None
     title: str
     slug: str
-    image_link: str
+    image_link: str | None = None
     pages_count: int
     description: str | None = None
     publish_date: str | int | None = None
@@ -28,6 +28,7 @@ class AuthorInsideBook(BaseModel):
 class BookCreate(BookBase):
     authors: list[AuthorInsideBook]
     genres: list[str]
+    publisher: str
 
 
 class BookUpdate(BookCreate): ...
@@ -36,15 +37,17 @@ class BookUpdate(BookCreate): ...
 class BookUpdatePartial(BookUpdate):
     title: str | None
     slug: str | None
-    image_link: str | None
     pages_count: int | None
     authors: list[BookAuthorsSchema] | None
     genres: list[BookGenreSchema] | None
     reviews: list[BookReviewSchema] | None
+    publisher: str | None
 
 
 class BookSchema(BookBase):
     id: int
+    image_link: str | None = None
+
     genres: list[BookGenreSchema]
     authors: list[BookAuthorsSchema]
 

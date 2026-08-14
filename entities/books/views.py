@@ -1,7 +1,9 @@
 import json
 import io
+from pathlib import Path
+from uuid import uuid4
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,9 @@ from . import crud
 from . import utils
 
 router = APIRouter(tags=["Books"])
+MEDIA_DIR = Path("media/books")
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+MAX_COVER_SIZE = 5 * 1024 * 1024
 
 
 @router.get("/")
@@ -205,6 +210,36 @@ async def create_book(
     new_book = await crud.create_book(session, data)
     await redis_client.delete("books:all")
     return new_book
+
+
+@router.post("/upload-cover")
+async def upload_book_cover(file: UploadFile = File(...)):
+    allowed_types = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+    }
+
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Допустимі тільки JPG, PNG, та WEBP",
+        )
+
+    content = await file.read()
+
+    if len(content) > MAX_COVER_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Максимальний розмір файлу - 5 МБ",
+        )
+
+    extension = allowed_types[file.content_type]
+    filename = f"{uuid4().hex}{extension}"
+    file_path = MEDIA_DIR / filename
+    file_path.write_bytes(content)
+
+    return {"image_link": f"/media/books/{filename}"}
 
 
 @router.post("/{username}/status/{book_slug}")
