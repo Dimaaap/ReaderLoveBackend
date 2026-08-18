@@ -15,8 +15,10 @@ from entities.book_genres.schema import (
 )
 
 
-async def get_all_genres(session: AsyncSession) -> list[BookGenreSchema]:
-    statement = select(BookGenres)
+async def get_all_genres(
+    session: AsyncSession, limit: int = 10, offset: int = 0
+) -> list[BookGenreSchema]:
+    statement = select(BookGenres).order_by(BookGenres.id).offset(offset).limit(limit)
 
     result = await session.execute(statement)
     genres = result.scalars().all()
@@ -113,7 +115,7 @@ async def delete_genre(session: AsyncSession, genre_id: int) -> bool:
 
     await session.delete(genre)
     await session.commit()
-    return True
+    return True, genre
 
 
 async def seed_genres(session: AsyncSession):

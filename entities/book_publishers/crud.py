@@ -13,11 +13,15 @@ from entities.book_publishers.schema import (
 )
 
 
-async def get_all_book_publishers(session: AsyncSession) -> list[BookPublisherSchema]:
+async def get_all_book_publishers(
+    session: AsyncSession, limit: int = 10, offset: int = 0
+) -> list[BookPublisherSchema]:
     statement = (
         select(BookPublisher)
         .options(joinedload(BookPublisher.books))
         .order_by(BookPublisher.id)
+        .offset(offset)
+        .limit(limit)
     )
     result = await session.execute(statement)
     book_publishers = result.unique().scalars().all()

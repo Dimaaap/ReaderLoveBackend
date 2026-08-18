@@ -1,4 +1,5 @@
 import asyncio
+from fastapi import status, HTTPException
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import select, func, case, desc, cast, Date, or_
@@ -483,13 +484,29 @@ async def create_book(session: AsyncSession, data: BookCreate) -> Book:
     book = Book(**book_data)
 
     if data.authors:
-        author_last_names = [author.last_name for author in data.authors]
-        author_statement = select(BookAuthors).where(
-            BookAuthors.last_name.in_(author_last_names)
-        )
-        author_result = await session.execute(author_statement)
-        fetched_authors = list(author_result.scalars().all())
-        book.authors = fetched_authors
+        authors = []
+
+        for author_data in data.authors:
+            author_statement = select(BookAuthors).where(
+                BookAuthors.first_name == author_data.first_name,
+                BookAuthors.last_name == author_data.last_name,
+            )
+            author_result = await session.execute(author_statement)
+            author = author_result.scalar_one_or_none()
+
+            if author is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=(
+                        f"Автор "
+                        f"{author_data.first_name} "
+                        f"{author_data.last_name} "
+                        f"не знайдений"
+                    ),
+                )
+            authors.append(author)
+
+        book.authors = authors
 
     if data.genres:
         genres_statement = select(BookGenres).where(BookGenres.title.in_(data.genres))

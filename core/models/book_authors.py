@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from .base import Base
 
-from sqlalchemy import String
+from sqlalchemy import String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -11,6 +11,14 @@ if TYPE_CHECKING:
 
 class BookAuthors(Base):
     __tablename__ = "book_authors"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "first_name",
+            "last_name",
+            name="uq_book_authors_first_name_last_name",
+        ),
+    )
 
     first_name: Mapped[str] = mapped_column(String(255), nullable=True)
     last_name: Mapped[str] = mapped_column(String(255), nullable=True)

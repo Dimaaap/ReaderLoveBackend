@@ -13,8 +13,10 @@ from entities.book_authors.schema import (
 )
 
 
-async def get_all_authors(session: AsyncSession) -> list[BookAuthorsSchema]:
-    statement = select(BookAuthors)
+async def get_all_authors(
+    session: AsyncSession, limit: int = 10, offset: int = 0
+) -> list[BookAuthorsSchema]:
+    statement = select(BookAuthors).order_by(BookAuthors.id).offset(offset).limit(limit)
 
     result = await session.execute(statement)
     authors = result.scalars().all()

@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.redis_config import redis_client
@@ -15,20 +15,39 @@ from . import crud
 router = APIRouter(tags=["Book Authors"])
 
 
+async def invalidate_book_authors_cache():
+    keys = []
+
+    async for key in redis_client.scan_iter(match="book_authors:*"):
+        keys.append(key)
+
+    if keys:
+        await redis_client.delete(*keys)
+
+
 @router.get("/", response_model=list[BookAuthorsSchema])
-async def get_all(session: AsyncSession = Depends(db_helper.scoped_session_dependency)):
-    cache_key = "book_authors:all"
+async def get_all(
+    limit: int = Query(default=10, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    cache_key = f"book_authors:limit:{limit}:offset:{offset}"
 
     cached = await redis_client.get(cache_key)
 
     if cached:
         return json.loads(cached)
 
-    data = await crud.get_all_authors(session)
+    data = await crud.get_all_authors(session=session, limit=limit, offset=offset)
     result = [BookAuthorsSchema.model_validate(author) for author in data]
 
-    await redis_client.set(cache_key, json.dumps([item.model_dump() for item in data]))
+    serialized = [item.model_dump(mode="json") for item in result]
 
+    await redis_client.set(
+        cache_key,
+        json.dumps(serialized),
+        ex=300,
+    )
     return result
 
 
@@ -61,7 +80,7 @@ async def create_author_view(
 ):
     book_author = await crud.create_author(session, data)
 
-    await redis_client.delete(f"book_authors:all")
+    await invalidate_book_authors_cache()
     return book_author
 
 
@@ -73,8 +92,7 @@ async def delete_author_by_id_view(
 
     if deleted:
         try:
-            await redis_client.delete(f"book_authors:{author_id}")
-            await redis_client.delete(f"book_authors:all")
+            await invalidate_book_authors_cache()
         except Exception:
             return
 
@@ -90,7 +108,6 @@ async def update_author_view(
     if not updated:
         raise HTTPException(status_code=404, detail="Author is not found")
 
-    await redis_client.delete("book_authors:all")
-    await redis_client.delete(f"book_authors:{author_id}")
+    await invalidate_book_authors_cache()
 
     return updated
