@@ -15,6 +15,7 @@ from core.models import (
     User,
     ReadingSession,
     BookReview,
+    BookPublisher,
 )
 from core.models.user_book_association import BookReadStatus
 from entities.books.utils import calculate_streak
@@ -480,7 +481,8 @@ async def get_current_main_reading_book(
 
 
 async def create_book(session: AsyncSession, data: BookCreate) -> Book:
-    book_data = data.model_dump(exclude={"authors", "genres"})
+    book_data = data.model_dump(exclude={"authors", "genres", "publisher"})
+    print(book_data)
     book = Book(**book_data)
 
     if data.authors:
@@ -515,9 +517,43 @@ async def create_book(session: AsyncSession, data: BookCreate) -> Book:
 
         book.genres = fetched_genres
 
+    if data.publisher:
+        publisher_statement = select(BookPublisher).where(
+            BookPublisher.slug == data.publisher
+        )
+
+        publisher_result = await session.execute(publisher_statement)
+        publisher = publisher_result.scalar_one_or_none()
+
+        if publisher is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Видавництво '{data.publisher}' не знайдене",
+            )
+
+        book.publisher = publisher
+
     session.add(book)
+    await session.flush()
+
+    book_id = book.id
+
     await session.commit()
-    await session.refresh(book)
+
+    statement = (
+        select(Book)
+        .options(
+            selectinload(Book.authors),
+            selectinload(Book.genres),
+            selectinload(Book.publisher),
+        )
+        .where(Book.id == book_id)
+    )
+
+    result = await session.execute(statement)
+
+    book = result.scalar_one()
+
     return book
 
 
