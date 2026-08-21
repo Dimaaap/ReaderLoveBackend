@@ -48,7 +48,6 @@ async def get_all_books(
         author_full_name = func.concat(
             BookAuthors.first_name, " ", BookAuthors.last_name
         )
-
         statement = statement.where(
             or_(
                 Book.title.ilike(f"%{search}%"),
