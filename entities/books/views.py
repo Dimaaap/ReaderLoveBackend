@@ -145,6 +145,7 @@ async def delete_user_book_status(
 
     cache_key = f"book:{username}:{book_slug}"
     await redis_client.delete(cache_key)
+    await redis_client.delete(f"books:{username}:active")
     return {"status": "ok"}
 
 
@@ -253,8 +254,10 @@ async def update_or_add_book_status(
         assoc = await crud.set_user_book_status(session, username, book_slug, data)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
     await redis_client.delete(f"books:{username}:active")
     await redis_client.delete(f"book:{username}:{book_slug}")
+    await redis_client.delete(f"books:{book_slug}")
 
     return {
         "ok": True,

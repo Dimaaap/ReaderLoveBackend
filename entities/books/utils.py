@@ -1,16 +1,17 @@
 import csv
 import io
+import os
 import json
 from datetime import timedelta, date
 from typing import Sequence
 
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-FONT_PATH = "C:\Windows\Fonts\Arial.ttf"
+FONT_PATH = os.getenv("FONT_PATH")
 
 pdfmetrics.registerFont(TTFont("Arial", FONT_PATH))
 
@@ -18,6 +19,7 @@ pdfmetrics.registerFont(TTFont("Arial", FONT_PATH))
 def calculate_streak(reading_dates: Sequence[date]) -> int:
     if not reading_dates:
         return 0
+
     today = date.today()
     yesterday = today - timedelta(days=1)
 
@@ -68,7 +70,6 @@ def generate_json_export(data: list[dict]) -> bytes:
 def generate_pdf_export(data: list[dict]) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
-    styles = getSampleStyleSheet()
     story = []
 
     title_style = ParagraphStyle(

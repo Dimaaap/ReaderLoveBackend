@@ -72,7 +72,7 @@ class PublisherSchema(BaseModel):
 
 
 class BookDetailSchema(BookSchema):
-    publisher: PublisherSchema | None = None
+    publishers: PublisherSchema | None = None
     reviews: list[BookReviewSchema] = []
     reading_sessions_count: int = 0
     read_pages: int = Field(default=0, alias="last_read_page")

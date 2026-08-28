@@ -33,6 +33,27 @@ from entities.books.schema import (
 )
 
 
+async def search_crud(statement, search):
+    search = search.strip()
+
+    author_full_name = func.concat(BookAuthors.first_name, " ", BookAuthors.last_name)
+    statement = statement.where(
+        or_(
+            Book.title.ilike(f"%{search}%"),
+            Book.isbn.ilike(f"%{search}%"),
+            Book.authors.any(
+                or_(
+                    BookAuthors.first_name.ilike(f"%{search}%"),
+                    BookAuthors.last_name.ilike(f"%{search}%"),
+                    author_full_name.ilike(f"%{search}%"),
+                )
+            ),
+        )
+    )
+
+    return statement
+
+
 async def get_all_books(
     session: AsyncSession, limit: int | None = None, search: str | None = None
 ) -> list[BookSchema]:
@@ -43,24 +64,7 @@ async def get_all_books(
     )
 
     if search:
-        search = search.strip()
-
-        author_full_name = func.concat(
-            BookAuthors.first_name, " ", BookAuthors.last_name
-        )
-        statement = statement.where(
-            or_(
-                Book.title.ilike(f"%{search}%"),
-                Book.isbn.ilike(f"%{search}%"),
-                Book.authors.any(
-                    or_(
-                        BookAuthors.first_name.ilike(f"%{search}%"),
-                        BookAuthors.last_name.ilike(f"%{search}%"),
-                        author_full_name.ilike(f"%{search}%"),
-                    )
-                ),
-            )
-        )
+        statement = search_crud(statement, search)
 
     if limit is not None:
         statement = statement.limit(limit)
@@ -71,15 +75,70 @@ async def get_all_books(
     return [BookSchema.model_validate(book) for book in books]
 
 
-async def get_book_by_id(session: AsyncSession, book_id: int) -> Book | None:
+async def get_book_by_id(
+    session: AsyncSession, book_id: int, username: str
+) -> BookSchemaWithSessions | None:
     statement = (
         select(Book)
         .where(Book.id == book_id)
-        .options(selectinload(Book.authors), selectinload(Book.genres))
+        .options(
+            selectinload(Book.authors),
+            selectinload(Book.genres),
+            selectinload(Book.publisher),
+        )
     )
 
     result = await session.execute(statement)
-    return result.scalar_one_or_none()
+    book = result.scalar_one_or_none()
+
+    if not book:
+        return None
+
+    book_detail = BookDetailSchema.model_validate(book)
+
+    if username:
+        user_stmt = (
+            select(
+                User.id, UserBookAssociation.last_read_page, UserBookAssociation.status
+            )
+            .outerjoin(
+                UserBookAssociation,
+                (UserBookAssociation.user_id == User.id)
+                & (UserBookAssociation.book_id == book.id),
+            )
+            .where(User.username == username)
+        )
+        user_result = await session.execute(user_stmt)
+        user_row = user_result.first()
+
+        if user_row:
+            user_id, last_read_page, status_val = user_row
+
+            book_detail.read_pages = last_read_page or 0
+            book_detail.status = (
+                status_val.value if hasattr(status_val, "value") else status_val
+            )
+
+            if user_id:
+                stats_statement = select(
+                    func.count(ReadingSession.id).label("sessions_count"),
+                    func.max(
+                        case(
+                            (ReadingSession.ended_at.is_(None), ReadingSession.id),
+                            else_=None,
+                        )
+                    ).label("active_session_id"),
+                ).where(
+                    ReadingSession.book_id == book.id, ReadingSession.user_id == user_id
+                )
+
+                stats_result = await session.execute(stats_statement)
+                stats = stats_result.one()
+
+                book_detail.reading_sessions_count = stats.sessions_count
+                book_detail.active_session_id = stats.active_session_id
+
+    return BookSchemaWithSessions.model_validate(book)
 
 
 async def get_book_by_slug(session: AsyncSession, book_slug: str) -> Book | None:
@@ -197,7 +256,20 @@ async def get_book_by_slug_for_user_with_sessions_stats(
         return BookSchemaWithSessions(**book_data)
 
     user_id, assoc_last_read_page = user_row
-    read_pages = assoc_last_read_page if assoc_last_read_page is not None else 0
+
+    latest_session_stmt = (
+        select(ReadingSession.end_page)
+        .where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
+        .order_by(desc(ReadingSession.started_at))
+        .limit(1)
+    )
+    latest_session_result = await session.execute(latest_session_stmt)
+    latest_end_page = latest_session_result.scalar_one_or_none()
+
+    if latest_end_page is not None:
+        read_pages = latest_end_page
+    else:
+        read_pages = assoc_last_read_page if assoc_last_read_page is not None else 0
 
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
@@ -298,6 +370,22 @@ async def set_user_book_status(
             last_read_page=data.last_read_page or 0,
         )
         session.add(assoc)
+
+    latest_session_statement = (
+        select(ReadingSession.end_page)
+        .where(ReadingSession.book_id == book_id, ReadingSession.user_id == user_id)
+        .order_by(desc(ReadingSession.started_at))
+        .limit(1)
+    )
+    latest_session_res = await session.execute(latest_session_statement)
+    latest_end_page = latest_session_res.scalar_one_or_none()
+
+    if data.last_read_page is not None:
+        assoc.last_read_page = data.last_read_page
+
+    elif latest_end_page is not None:
+        assoc.last_read_page = latest_end_page
+
     await session.commit()
     await session.refresh(assoc)
     return assoc
@@ -377,7 +465,8 @@ async def get_book_by_slug_for_user(
         .options(
             selectinload(Book.authors),
             selectinload(Book.genres),
-            selectinload(Book.reviews).selectinload(BookReview.user),
+            selectinload(Book.publisher),
+            selectinload(Book.reviews).options(selectinload(BookReview.user)),
         )
     )
     book_result = await session.execute(book_statement)
@@ -398,28 +487,31 @@ async def get_book_by_slug_for_user(
     result = await session.execute(user_assoc_stmt)
     user_row = result.first()
 
+    sessions_count = 0
+    active_session_id = None
+    last_read_page = 0
+
     if not user_row:
-        return BookDetailSchema.model_validate(book)
+        user_id, last_read_page = user_row
 
-    user_id, last_read_page = user_row
+        stats_statement = select(
+            func.count(ReadingSession.id).label("sessions_count"),
+            func.max(
+                case((ReadingSession.ended_at.is_(None), ReadingSession.id), else_=None)
+            ).label("active_session_id"),
+        ).where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
 
-    stats_statement = select(
-        func.count(ReadingSession.id).label("sessions_count"),
-        func.max(
-            case((ReadingSession.ended_at.is_(None), ReadingSession.id), else_=None)
-        ).label("active_session_id"),
-    ).where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
+        stats_result = await session.execute(stats_statement)
+        stats = stats_result.one()
 
-    stats_result = await session.execute(stats_statement)
-    stats = stats_result.one()
+        sessions_count = stats.sessions_count
+        active_session_id = stats.active_session_id
 
-    book_detail = BookDetailSchema.model_validate(book)
+    book.reading_sessions_count = sessions_count
+    book.read_pages = last_read_page or 0
+    book.active_session_id = active_session_id
 
-    book_detail.reading_sessions_count = stats.sessions_count
-    book_detail.read_pages = last_read_page or 0
-    book_detail.active_session_id = stats.active_session_id
-
-    return book_detail
+    return BookDetailSchema.model_validate(book)
 
 
 async def get_current_main_reading_book(
