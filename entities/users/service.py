@@ -1,8 +1,8 @@
-from pathlib import Path
 from datetime import timedelta, datetime, timezone
 import os
 import aiofiles
 from uuid import uuid4
+from loguru import logger
 from PIL import Image
 from urllib.parse import quote
 
@@ -11,7 +11,7 @@ from pwdlib import PasswordHash
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status, Response, UploadFile
-from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
+from fastapi_mail import FastMail, MessageSchema, MessageType
 from jose import jwt, JWTError
 from starlette.responses import RedirectResponse
 
@@ -21,32 +21,10 @@ from utils.otp import generate_random_otp
 from . import crud
 from .schema import SignupRequest, CreateUser, GoogleSignupRequest
 from core.models import User
+from .settings import settings
+from .mail import mail_config
 
 password_context = PasswordHash.recommended()
-
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-TEMPLATES_DIR = BASE_DIR / "templates"
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-ALGORITHM = os.getenv("JWT_ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_EXPIRED_MINUTES"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_EXPIRED_DAYS"))
-
-ALLOWED_TYPES = {"image/png", "image/jpeg", "image/webp"}
-AVATAR_DIR = "media/avatars"
-AVATAR_MAX_SIZE_IN_MB = 5 * 1024 * 1024
-
-mail_config = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
-    MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=os.getenv("MAIL_PORT"),
-    MAIL_SERVER=os.getenv("MAIL_SERVER"),
-    MAIL_STARTTLS=os.getenv("MAIL_STARTTLS") == "True",
-    MAIL_SSL_TLS=os.getenv("MAIL_SSL_BF") == "True",
-    USE_CREDENTIALS=os.getenv("USE_CREDENTIALS") == "True",
-    VALIDATE_CERTS=os.getenv("VALIDATE_CERTS") == "True",
-    TEMPLATE_FOLDER=TEMPLATES_DIR,
-)
 
 
 def create_token(data: dict, expires_delta: timedelta) -> str:
@@ -55,39 +33,39 @@ def create_token(data: dict, expires_delta: timedelta) -> str:
     to_encode.update({"exp": expire})
     return jwt.encode(
         to_encode,
-        SECRET_KEY,
-        algorithm=ALGORITHM,
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
     )
 
 
 def generate_auth_tokens(user_id: str) -> tuple[str, str]:
     access_token = create_token(
         data={"sub": user_id, "type": "access"},
-        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
     )
 
     refresh_token = create_token(
         data={"sub": user_id, "type": "refresh"},
-        expires_delta=timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        expires_delta=timedelta(days=settings.refresh_token_expire_days),
     )
-
+    logger.info("Generated access and refresh tokens")
     return access_token, refresh_token
 
 
 async def save_avatar(file: UploadFile, old_avatar: str | None) -> str:
-    if file.content_type not in ALLOWED_TYPES:
+    if file.content_type not in settings.allowed_types:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported image format"
         )
 
-    os.makedirs(AVATAR_DIR, exist_ok=True)
+    os.makedirs(settings.avatar_dir, exist_ok=True)
     filename = f"{uuid4().hex}.webp"
 
-    path = os.path.join(AVATAR_DIR, filename)
+    path = os.path.join(settings.avatar_dir, filename)
 
     content = await file.read()
 
-    if len(content) > AVATAR_MAX_SIZE_IN_MB:
+    if len(content) > settings.avatar_max_size:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Maximum avatar file is 5MB"
         )
@@ -117,6 +95,7 @@ async def delete_avatar(path: str | None):
         return
     try:
         os.remove(path)
+        logger.info(f"Deleted avatar {path}")
     except FileNotFoundError:
         pass
 
@@ -152,6 +131,7 @@ async def send_otp_email(email: str, username: str, otp: str):
     )
 
     fm = FastMail(mail_config)
+    logger.info(f"Email with verification code { message } was sent to email { email }")
     await fm.send_message(message, template_name="otp-email.html")
 
 
@@ -170,7 +150,9 @@ async def send_reset_password_email(email: str, username: str, otp: str):
 async def update_user_password(session: AsyncSession, email: str, new_password: str):
     user = await crud.get_user_by_email(session, email)
     if not user:
+        logger.error(f"User with username {email} was not found")
         return False
+    logger.info(f"Get user with email {email}")
 
     hashed_password = password_context.hash(new_password)
     user.password_hash = hashed_password
@@ -220,7 +202,9 @@ async def register_user_without_otp(
 
 async def add_token_to_blacklist(token: str, redis_client):
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
         expire_timestamp = payload.get("exp")
 
         if not expire_timestamp:
@@ -231,6 +215,8 @@ async def add_token_to_blacklist(token: str, redis_client):
 
         if ttl > 0:
             await redis_client.set(f"blacklist:{token}", "1", ex=ttl)
+
+        logger.info(f"Added token to blacklist {token}")
     except JWTError:
         pass
 
@@ -245,7 +231,9 @@ async def is_token_blacklisted(token: str, redis_client) -> bool:
 
 def get_user_id_from_token(token: str, expected_type: str = "access") -> str:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
 
         token_type = payload.get("type")
         if token_type != expected_type:
@@ -296,7 +284,7 @@ def set_auth_cookies(
         httponly=True,
         samesite="lax",
         secure=False,
-        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=settings.access_token_expire_minutes * 60,
     )
 
     response.set_cookie(
@@ -306,7 +294,7 @@ def set_auth_cookies(
         samesite="lax",
         secure=False,
         path=path if path else "/",
-        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
     )
 
 
@@ -318,6 +306,7 @@ def delete_auth_cookies(response: Response) -> None:
     response.delete_cookie(
         key="refresh_token", httponly=True, samesite="lax", secure=False
     )
+    logger.info("Deleted tokens from cookies")
 
 
 async def refresh_tokens(refresh_token: str, response: Response):
@@ -337,12 +326,16 @@ async def authenticate_user(data: SignupRequest, session: AsyncSession) -> User:
         status_code=status.HTTP_401_UNAUTHORIZED, detail="Неправильний email або пароль"
     )
 
+    logger.info(f"Invalidate credentials for user {data.email}")
+
     if not user:
+        logger.error(invalid_credentials_exception)
         raise invalid_credentials_exception
 
     is_password_correct = password_context.verify(data.password, user.password_hash)
 
     if not is_password_correct:
+        logger.error(f"Password for user {data.email} is incorrenct")
         raise invalid_credentials_exception
 
     return user
@@ -382,6 +375,7 @@ async def google_response(client, token_url: str, data: dict, session: AsyncSess
     user_res = await client.get(user_info_url, headers=headers)
 
     if user_res.status_code != 200:
+        logger.error(f"Failed to login with Google")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Unauthorized"
         )
@@ -393,6 +387,8 @@ async def google_response(client, token_url: str, data: dict, session: AsyncSess
         "email": email,
         "username": username,
     }
+
+    logger.info(f"Try to register user with Google with data {data}")
 
     return await register_user_with_google(data, session)
 
@@ -411,6 +407,7 @@ async def github_response(
     github_access_token = tokens.get("access_token")
 
     if not github_access_token:
+        logger.error("Failed to get GitHub access token")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to get Github access token",
@@ -444,6 +441,8 @@ async def github_response(
         "username": username,
     }
 
+    logger.info(f"Try to register user with GitHub with data {user_data}")
+
     return await register_user_with_github(user_data, session, email)
 
 
@@ -462,6 +461,7 @@ async def register_user_with_github(user_data, session: AsyncSession, email: str
             await crud.verify_user(session, user)
 
         except (IntegrityError, UserExistingError):
+            logger.error("Database error")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Database error",
@@ -484,6 +484,7 @@ async def register_user_with_github(user_data, session: AsyncSession, email: str
         samesite="lax",
         secure=False,
     )
+    logger.info(f"Try to register user with GitHub with data {user_data}")
 
     return redirect_response
 
@@ -493,6 +494,7 @@ async def register_user_with_google(data, session: AsyncSession):
     username = data.get("username")
 
     user = await crud.get_user_by_email(session, str(email))
+    logger.info(f"Try to register user with Google {user.username}")
 
     if not user:
         try:
@@ -502,6 +504,7 @@ async def register_user_with_google(data, session: AsyncSession):
 
             await crud.verify_user(session, user)
         except (IntegrityError, UserExistingError) as e:
+            logger.error(e.__notes__[0])
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail=e.__notes__[0]
             )
@@ -515,6 +518,7 @@ async def register_user_with_google(data, session: AsyncSession):
         )
 
     safe_username = quote(username) if username else ""
+    logger.info(f"Register user with Google with username {user.username}")
 
     redirect_response.set_cookie(
         key="username",
@@ -543,6 +547,8 @@ async def change_password(
         )
 
     user.password_hash = password_context.hash(new_password)
+
+    logger.info(f"Change password for user {user.username}")
 
     await session.commit()
     await session.refresh(user)

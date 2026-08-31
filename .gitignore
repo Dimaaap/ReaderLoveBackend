@@ -6,6 +6,7 @@ __pycache__/
 *.pyd
 *.pyo
 *.pyc
+logs.txt
 
 .Python
 build/
@@ -17,6 +18,7 @@ eggs/
 lib/
 lib64/
 parts/
+media/
 sdist/
 var/
 wheels/
@@ -50,6 +52,7 @@ ENV/
 # FastAPI / Uvicorn / logs
 # =========================
 *.log
+logs.txt
 
 # =========================
 # Testing

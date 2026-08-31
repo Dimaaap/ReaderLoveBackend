@@ -1,6 +1,8 @@
 import os
 import httpx
 
+from loguru import logger
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -27,7 +29,6 @@ from entities.users.schema import (
     UpdateUserPartial,
     ChangePasswordSchema,
     UpdateUserSettings,
-    UserByUsernameSchema,
 )
 from . import service, crud
 from .exceptions import GitHubException
@@ -59,9 +60,11 @@ async def forgot_password(
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     user_email = str(data.email)
+    logger.info(f"User with email {user_email} is trying to reset password")
     user = await crud.get_user_by_email(session, user_email)
 
     if not user:
+        logger.error(f"User with email {user_email} was not found")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
@@ -75,6 +78,7 @@ async def forgot_password(
         )
         return {"message": "Reset OTP send successfully", "email": user_email}
     except ValueError as e:
+        logger.error(str(e))
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
@@ -82,6 +86,7 @@ async def forgot_password(
 async def get_user_by_username(
     username: str, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
 ):
+    logger.info(f"Get user with username {username}")
     user = await crud.get_user_by_username(session, username)
 
     return user
@@ -94,15 +99,18 @@ async def reset_password(
 ):
     saved_otp = await redis_client.get(f"reset_otp:{data.email}")
     if not saved_otp or saved_otp != data.otp:
+        logger.error(f"Error comparing otp for user {data.email}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired code"
         )
     try:
         await service.update_user_password(session, str(data.email), data.new_password)
+        logger.info(f"Updated password for user with email {data.email}")
         await redis_client.delete(f"reset_otp:{data.email}")
 
         return {"message": "Password updated successfully"}
     except Exception as e:
+        logger.error(str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update password",
@@ -116,7 +124,9 @@ async def send_otp(
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     user = await crud.get_user_by_email(session, user_email)
+    logger.info(f"Try to send OTP code for user with email {user_email}")
     new_otp = service.generate_random_otp()
+    logger.info("Successfully generated OTP code")
     await redis_client.set(f"otp:{user_email}", new_otp, ex=300)
     try:
         background_tasks.add_task(
@@ -124,6 +134,7 @@ async def send_otp(
         )
         return {"message": "New OTP send", "email": user.email}
     except ValueError as e:
+        logger.error(str(e))
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -137,13 +148,14 @@ async def verify(
         user = await service.verify_otp(
             str(data.email), data.otp, session, redis_client
         )
-
+        logger.info(f"Try to verify OTP for user with email { data.email }")
         access_token, refresh_token = service.generate_auth_tokens(user.id)
 
         service.set_auth_cookies(response, access_token, refresh_token)
 
         return {"message": "verified"}
     except ValueError as e:
+        logger.error(str(e))
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -169,6 +181,8 @@ async def login(
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     user = await service.authenticate_user(data, session)
+
+    logger.info(f"Try to login user with email {user.email}")
 
     access_token, refresh_token = service.generate_auth_tokens(user.id)
     service.set_auth_cookies(response, access_token, refresh_token)
@@ -221,7 +235,10 @@ async def get_current_user(
             )
 
     user = await crud.get_user_by_id(session, user_id)
+
+    logger.info(f"Try to login for user {user.username} - email {user.email}")
     if user is None:
+        logger.error(f"User was not found")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
@@ -259,12 +276,15 @@ async def delete_avatar(
     user = await crud.get_user_by_id(session, user_id)
 
     if not user:
+        logger.error("User was not found")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
     await service.delete_avatar(user.avatar)
     await crud.delete_avatar(session, user)
+
+    logger.info("Successfully deleted avatar")
 
     return {"message": "Avatar deleted"}
 
@@ -297,6 +317,7 @@ async def change_password(
     user = await crud.get_user_by_id(session, user_id)
 
     if not user:
+        logger.error(f"Failed to get user ${user_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
@@ -307,6 +328,7 @@ async def change_password(
         data.current_password,
         data.new_password,
     )
+    logger.info(f"Successfully changed password")
 
     return {"message": "Success"}
 
@@ -339,11 +361,11 @@ async def update_user_settings(
     user = await crud.get_user_by_id(session, user_id)
 
     if not user:
+        logger.error(f"Failed to get user ${user_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-
     return await crud.update_user_settings(session, user, settings_update)
 
 
@@ -370,11 +392,13 @@ async def patch_user_data(
     user = await crud.get_user_by_id(session, user_id)
 
     if not user:
+        logger.error("Failed to fetch user")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Not found user"
         )
 
     updated_user = await crud.update_user(session, user, data, partial=True)
+    logger.info(f"Updated data for user {updated_user}")
     return updated_user
 
 
@@ -397,15 +421,18 @@ async def upload_avatar(
         )
 
     user_id = service.try_get_user_id_from_token(access_token, expected_type="access")
+    logger.info(f"Try to get user with id {user_id}")
 
     user = await crud.get_user_by_id(session, user_id)
 
     if not user:
+        logger.warning(f"User with id {user_id} was not found")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Not found user"
         )
 
     avatar_path = await service.save_avatar(file, user.avatar)
+    logger.info(f"Avatar path {avatar_path}")
 
     user = await crud.update_avatar(session, user, avatar_path)
 
@@ -445,6 +472,8 @@ async def google_callback(
         "grant_type": "authorization_code",
     }
 
+    logger.info(f"try to get google callback with data {data}")
+
     async with httpx.AsyncClient() as client:
         return await service.google_response(client, token_url, data, session)
 
@@ -473,6 +502,8 @@ async def github_callback(
         "code": code,
         "redirect_uri": os.getenv("GITHUB_REDIRECT_URI"),
     }
+
+    logger.info(f"try to get github callback with data {data}")
 
     headers = {"Accept": "application/json"}
 

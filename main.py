@@ -1,17 +1,22 @@
 import os
+import time
 from contextlib import asynccontextmanager
 
 import uvicorn
+from loguru import logger
 from fastapi import FastAPI, Request, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.redis_config import redis_client
+from core.logging import setup_logging
 from custom_errors.user_existing_error import UserExistingError
 from entities.users.exceptions import GitHubException
 from entities import router
 from managers import ConnectionManager
+
+setup_logging()
 
 
 @asynccontextmanager
@@ -49,6 +54,23 @@ async def websocket_presence(websocket: WebSocket, user_id: str):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(user_id)
+
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration = time.perf_counter() - start
+
+    logger.info(
+        "{} {} -> {} ({:.3f}s)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration,
+    )
+
+    return response
 
 
 @app.exception_handler(UserExistingError)

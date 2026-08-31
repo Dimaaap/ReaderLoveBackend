@@ -1,6 +1,6 @@
 import os
 
-from fastapi import Request, HTTPException, status
+from fastapi import Request, HTTPException, status, Depends
 from jose import jwt, JWTError
 
 from . import service

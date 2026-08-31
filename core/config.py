@@ -36,5 +36,9 @@ class Settings(BaseSettings):
     db: DBSettings = DBSettings()
     redis: RedisSettings = RedisSettings()
 
+    model_config = SettingsConfigDict(
+        env_file=".env", env_nested_delimiter="_", extra="ignore"
+    )
+
 
 settings = Settings()

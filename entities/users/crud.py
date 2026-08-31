@@ -1,3 +1,4 @@
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,8 +55,10 @@ async def get_user_by_username(
     user = result.scalar_one_or_none()
 
     if not user:
+        logger.error(f"User with username was not found")
         return None
 
+    logger.info(f"User with username {username} was found")
     return UserByUsernameSchema.model_validate(user)
 
 
@@ -71,6 +74,8 @@ async def update_user(
 
     for key, value in update_data.items():
         setattr(user, key, value)
+
+    logger.info(f"Update user with data: {user_update}")
 
     await session.commit()
     await session.refresh(user)
@@ -93,6 +98,7 @@ async def create_user(session: AsyncSession, user_data: CreateUser) -> User:
 
 async def update_avatar(session: AsyncSession, user: User, avatar: str) -> User:
     user.avatar = avatar
+    logger.info(f"User { user.username } update avatar { user.avatar }")
 
     await session.commit()
     await session.refresh(user)
@@ -110,12 +116,14 @@ async def update_user_settings(
 
     await session.commit()
     await session.refresh(user.settings)
+    logger.info(f"Updated user settings for user {user.username}")
 
     return user.settings
 
 
 async def delete_avatar(session: AsyncSession, user: User) -> User:
     user.avatar = None
+    logger.info(f"Deleted avatar for user {user.email}")
 
     await session.commit()
     await session.refresh(user)
