@@ -2,6 +2,7 @@ import asyncio
 from fastapi import status, HTTPException
 from datetime import datetime, timezone, timedelta
 
+from loguru import logger
 from sqlalchemy import select, func, case, desc, cast, Date, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -57,6 +58,8 @@ async def search_crud(statement, search):
 async def get_all_books(
     session: AsyncSession, limit: int | None = None, search: str | None = None
 ) -> list[BookSchema]:
+
+    logger.info(f"Try to get all books with params: search={search}, limit={limit}")
     statement = (
         select(Book)
         .options(selectinload(Book.authors), selectinload(Book.genres))
@@ -64,20 +67,21 @@ async def get_all_books(
     )
 
     if search:
-        statement = search_crud(statement, search)
+        statement = await search_crud(statement, search)
 
     if limit is not None:
         statement = statement.limit(limit)
 
     result = await session.execute(statement)
 
-    books = result.scalars().all()
+    books = result.scalars().unique().all()
     return [BookSchema.model_validate(book) for book in books]
 
 
-async def get_book_by_id(
-    session: AsyncSession, book_id: int, username: str
-) -> BookSchemaWithSessions | None:
+async def get_book_by_id_without_username(
+    session: AsyncSession, book_id: int
+) -> BookSchema | None:
+    logger.info(f"Try to get book with id {book_id}")
     statement = (
         select(Book)
         .where(Book.id == book_id)
@@ -92,6 +96,31 @@ async def get_book_by_id(
     book = result.scalar_one_or_none()
 
     if not book:
+        logger.error(f"Failed to get book with id {book_id} - book was not found in db")
+        return None
+
+    return BookSchema.model_validate(book)
+
+
+async def get_book_by_id(
+    session: AsyncSession, book_id: int, username: str
+) -> BookSchemaWithSessions | None:
+    logger.info(f"Try to get book with id {book_id}")
+    statement = (
+        select(Book)
+        .where(Book.id == book_id)
+        .options(
+            selectinload(Book.authors),
+            selectinload(Book.genres),
+            selectinload(Book.publisher),
+        )
+    )
+
+    result = await session.execute(statement)
+    book = result.scalar_one_or_none()
+
+    if not book:
+        logger.error(f"Failed to get book with id {book_id} - book was not found in db")
         return None
 
     book_detail = BookDetailSchema.model_validate(book)
@@ -113,6 +142,9 @@ async def get_book_by_id(
 
         if user_row:
             user_id, last_read_page, status_val = user_row
+            logger.info(
+                f"Get user data for book - {user_id}, {last_read_page}, {status_val}"
+            )
 
             book_detail.read_pages = last_read_page or 0
             book_detail.status = (
@@ -137,11 +169,17 @@ async def get_book_by_id(
 
                 book_detail.reading_sessions_count = stats.sessions_count
                 book_detail.active_session_id = stats.active_session_id
+                logger.info(
+                    f"Calculated reading sessions count and active session_id for book: {stats.sessions_count}"
+                    f"{status.active_session_id}"
+                )
 
     return BookSchemaWithSessions.model_validate(book)
 
 
 async def get_book_by_slug(session: AsyncSession, book_slug: str) -> Book | None:
+    logger.info(f"Try to get book with slug {book_slug}")
+
     statement = (
         select(Book)
         .where(Book.slug == book_slug)
@@ -155,6 +193,7 @@ async def get_book_by_slug(session: AsyncSession, book_slug: str) -> Book | None
 async def get_book_by_slug_for_user_with_status(
     session: AsyncSession, book_slug: str, username: str
 ) -> Book | None:
+    logger.info(f"Try to get book {book_slug} for user {username}")
     statement = (
         select(
             Book,
@@ -178,6 +217,7 @@ async def get_book_by_slug_for_user_with_status(
     row = result.first()
 
     if not row:
+        logger.error(f"Failed to get book {book_slug} for user {username}")
         return None
 
     book, status, last_read_page, user_id = row
@@ -196,6 +236,10 @@ async def get_book_by_slug_for_user_with_status(
 
         book_detail.reading_sessions_count = stats.sessions_count
         book_detail.active_session_id = stats.active_session_id
+        logger.info(
+            f"Uploaded sessions cound and active session id for book {book_slug} for user {username}: "
+            f"{stats.sessions_count}, {stats.active_session_id}"
+        )
 
     book_detail.read_pages = last_read_page or 0
     book_detail.status = status
@@ -206,6 +250,9 @@ async def get_book_by_slug_for_user_with_status(
 async def delete_user_book_status(
     session: AsyncSession, username: str, book_slug: str
 ) -> bool:
+    logger.info(
+        f"Try to delete reading book status in book {book_slug} for user {username}"
+    )
     statement = (
         select(UserBookAssociation)
         .join(User, UserBookAssociation.user_id == User.id)
@@ -215,7 +262,7 @@ async def delete_user_book_status(
 
     result = await session.execute(statement)
     assoc = result.scalar_one_or_none()
-    print(assoc)
+    logger.info(assoc)
 
     if assoc:
         await session.delete(assoc)
@@ -228,6 +275,9 @@ async def delete_user_book_status(
 async def get_book_by_slug_for_user_with_sessions_stats(
     session: AsyncSession, book_slug: str, username: str, limit: int = 5
 ) -> BookSchemaWithSessions | None:
+    logger.info(
+        f"Try to get book {book_slug} with reading sessions for user {username} with limit={limit}"
+    )
     book_statement = (
         select(Book)
         .where(Book.slug == book_slug)
@@ -237,6 +287,9 @@ async def get_book_by_slug_for_user_with_sessions_stats(
     book = book_result.scalar_one_or_none()
 
     if not book:
+        logger.error(
+            f"Failed to get book {book_slug} with reading sessions for user {username} with limit={limit}"
+        )
         return None
 
     user_stmt = (
@@ -337,11 +390,17 @@ async def get_book_by_slug_for_user_with_sessions_stats(
 async def set_user_book_status(
     session: AsyncSession, username: str, book_slug: str, data: UserBookStatusUpdate
 ) -> UserBookAssociation:
+    logger.info(
+        f"Try to set book status in book {book_slug} for user {username} with data {data}"
+    )
     user_statement = select(User.id).where(User.username == username)
     user_res = await session.execute(user_statement)
     user_id = user_res.scalar_one_or_none()
 
     if not user_id:
+        logger.error(
+            f"Failed to set book status in book {book_slug} for user {username} - user was not found"
+        )
         raise ValueError("User not found")
 
     book_statement = select(Book.id).where(Book.slug == book_slug)
@@ -349,6 +408,9 @@ async def set_user_book_status(
     book_id = book_res.scalar_one_or_none()
 
     if not book_id:
+        logger.error(
+            f"Failed to set book status in book {book_slug} for user {username} - book was not found"
+        )
         raise ValueError("Book not found")
 
     assoc_statement = select(UserBookAssociation).where(
@@ -381,9 +443,15 @@ async def set_user_book_status(
     latest_end_page = latest_session_res.scalar_one_or_none()
 
     if data.last_read_page is not None:
+        logger.info(
+            f"Added last_read_page for book {book_slug}: last read page is {data.last_read_page}"
+        )
         assoc.last_read_page = data.last_read_page
 
     elif latest_end_page is not None:
+        logger.info(
+            f"Added last_read_page for book {book_slug}: last read page is {latest_end_page}"
+        )
         assoc.last_read_page = latest_end_page
 
     await session.commit()
@@ -459,6 +527,7 @@ async def get_user_library_for_export(
 async def get_book_by_slug_for_user(
     session: AsyncSession, book_slug: str, username: str
 ) -> BookDetailSchema | None:
+    logger.info(f"Try to get book {book_slug} for user {username}")
     book_statement = (
         select(Book)
         .where(Book.slug == book_slug)
@@ -473,6 +542,9 @@ async def get_book_by_slug_for_user(
     book = book_result.scalar_one_or_none()
 
     if not book:
+        logger.error(
+            f"Failed to get book {book_slug} for user {username} - book was not found"
+        )
         return None
 
     user_assoc_stmt = (
@@ -506,6 +578,9 @@ async def get_book_by_slug_for_user(
 
         sessions_count = stats.sessions_count
         active_session_id = stats.active_session_id
+        logger.info(
+            f"sessions count {stats.sessions_count} active session id {stats.active_session_id}"
+        )
 
     book.reading_sessions_count = sessions_count
     book.read_pages = last_read_page or 0
@@ -517,11 +592,15 @@ async def get_book_by_slug_for_user(
 async def get_current_main_reading_book(
     session: AsyncSession, username: str, limit: int = 5
 ) -> BookSchemaWithSessions | None:
+    logger.info(f"Try to get current book for user {username}")
     user_statement = select(User.id).where(User.username == username)
     user_result = await session.execute(user_statement)
     user_id = user_result.scalar_one_or_none()
 
     if not user_id:
+        logger.error(
+            f"Failed to get current book for user {username} - user was not found"
+        )
         return None
 
     active_session_statement = (
@@ -534,6 +613,7 @@ async def get_current_main_reading_book(
     book_slug = result.scalar_one_or_none()
 
     if not book_slug:
+        logger.info(f"Not found book with reading sessions")
         last_read_statement = (
             select(Book.slug)
             .join(ReadingSession, Book.id == ReadingSession.book_id)
@@ -573,7 +653,7 @@ async def get_current_main_reading_book(
 
 async def create_book(session: AsyncSession, data: BookCreate) -> Book:
     book_data = data.model_dump(exclude={"authors", "genres", "publisher"})
-    print(book_data)
+    logger.info(f"Try to create book with data {book_data}")
     book = Book(**book_data)
 
     if data.authors:
@@ -709,9 +789,18 @@ async def get_user_active_books_for_notes(
     return user_books
 
 
-async def delete_book(session: AsyncSession, book: Book) -> None:
+async def delete_book(session: AsyncSession, book_id: int) -> bool:
+    statement = select(Book).where(Book.id == book_id)
+
+    book_res = await session.execute(statement)
+    book = book_res.scalar_one_or_none()
+
+    if not book:
+        return False
+
     await session.delete(book)
     await session.commit()
+    return True
 
 
 async def seed_books(session: AsyncSession):

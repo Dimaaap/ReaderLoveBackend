@@ -2,6 +2,7 @@ import asyncio
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from loguru import logger
 
 from core.models import BookAuthors, db_helper
 from .data import authors
@@ -20,6 +21,7 @@ async def get_all_authors(
 
     result = await session.execute(statement)
     authors = result.scalars().all()
+    logger.info("Get all book authors data")
 
     return [BookAuthorsSchema.model_validate(author) for author in authors]
 
@@ -28,7 +30,7 @@ async def create_author(
     session: AsyncSession, data: BookAuthorsCreate
 ) -> BookAuthorsSchema:
     new_author = BookAuthors(**data.model_dump())
-
+    logger.info(f"Try to create author {data.first_name} {data.last_name}")
     session.add(new_author)
     await session.commit()
     await session.refresh(new_author)
@@ -38,11 +40,12 @@ async def create_author(
 
 async def get_author_by_id(session: AsyncSession, author_id: int) -> BookAuthors | None:
     statement = select(BookAuthors).where(BookAuthors.id == author_id)
-
+    logger.info(f"Try to get book author with id {author_id}")
     result = await session.execute(statement)
     author = result.scalar_one_or_none()
 
     if author is None:
+        logger.error(f"Error to get author with id {author_id}")
         return None
 
     return author
@@ -92,8 +95,10 @@ async def delete_author(session: AsyncSession, author_id: int) -> bool:
         select(BookAuthors).where(BookAuthors.id == author_id)
     )
     author = result.scalar_one_or_none()
+    logger.info(f"Try to delete author with id {author_id}")
 
     if author is None:
+        logger.error(f"Error to delete author with id {author_id}")
         return False
 
     await session.delete(author)
@@ -105,7 +110,7 @@ async def seed_authors(session: AsyncSession):
     for author in authors:
         author_create = BookAuthorsCreate(**author)
         await create_author(session, author_create)
-    print("Successfully")
+    logger.info("Successfully seeded authors")
 
 
 async def main():

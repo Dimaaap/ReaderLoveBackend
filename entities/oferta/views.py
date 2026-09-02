@@ -1,11 +1,12 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from loguru import logger
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.redis_config import redis_client
 from core.models import db_helper
-from entities.oferta.schema import OfertaSchema, OfertaCreate
+from entities.oferta.schema import OfertaCreate
 from . import crud
 from .crud import create_or_update_oferta
 
@@ -21,11 +22,14 @@ async def get_oferta(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info("Get oferta from Redis cache")
         return json.loads(cached)
 
     data = await crud.get_last_oferta(session)
+    logger.info("Return oferta from db")
 
     if not data:
+        logger.info("Oferta is none")
         return {}
     await redis_client.set(cache_key, json.dumps(data.model_dump()), ex=300)
     return data
@@ -53,5 +57,7 @@ async def delete_oferta(
 
     deleted = await crud.delete_oferta(session)
     if deleted:
+        logger.info("Oferta deleted")
         return {"ok": True}
+    logger.info("Oferta didn`t delete")
     return {"ok": False}

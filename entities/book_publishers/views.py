@@ -1,5 +1,6 @@
 import json
 
+from loguru import logger
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +39,9 @@ async def get_all_publishers(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(
+            f"Get all book genres with queries limit={limit}, offset={offset} from Redis cache"
+        )
         return json.loads(cached)
 
     data = await crud.get_all_book_publishers(
@@ -49,6 +53,9 @@ async def get_all_publishers(
     result = [BookPublisherSchema.model_validate(publisher) for publisher in data]
 
     serialized = [item.model_dump(mode="json") for item in result]
+    logger.info(
+        f"Return all book genres with queries limit={limit}, offset={offset} from db"
+    )
 
     await redis_client.set(
         cache_key,
@@ -68,6 +75,7 @@ async def get_book_publisher_by_id(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get book publisher {publisher_id} from Redis cache")
         return json.loads(cached)
 
     data = await crud.get_book_publisher_by_id(session, publisher_id)
@@ -76,6 +84,7 @@ async def get_book_publisher_by_id(
         return None
 
     result = BookPublisherSchema.model_validate(data)
+    logger.info(f"Return book publisher with id {publisher_id} from db")
 
     await redis_client.set(
         cache_key,
@@ -95,6 +104,7 @@ async def get_book_publisher_by_slug(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get book publisher by slug {publisher_slug} from Redis cache")
         return json.loads(cached)
 
     data = await crud.get_book_publisher_by_slug(session, publisher_slug)
@@ -103,6 +113,7 @@ async def get_book_publisher_by_slug(
         return None
 
     result = BookPublisherSchema.model_validate(data)
+    logger.info(f"Return book publisher with slug {publisher_slug} from db")
 
     await redis_client.set(
         cache_key,
@@ -122,6 +133,7 @@ async def create_book_publisher_view(
 ):
     book_publisher = await crud.create_book_publisher(session, data)
     await invalidate_book_publishers_cache()
+    logger.info(f"Crated book publisher {data.title}")
     return book_publisher
 
 
@@ -138,7 +150,7 @@ async def delete_book_publisher_by_id_view(
             detail="Book Publisher is not found",
         )
     await invalidate_book_publishers_cache()
-
+    logger.info(f"Deleted book publisher with id {publisher_id}")
     return {
         "ok": True,
         "publisher_id": publisher_id,
@@ -161,5 +173,6 @@ async def update_book_publisher(
         )
 
     await invalidate_book_publishers_cache()
+    logger.info(f"Successfully updated book publisher with id {publisher_id}")
 
     return updated

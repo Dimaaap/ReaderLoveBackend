@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -15,6 +16,7 @@ from entities.reading_sessions.schema import (
 
 
 async def get_all_reading_sessions(session: AsyncSession) -> list[ReadingSessionSchema]:
+    logger.info("Try to get all reading sessions")
     statement = (
         select(ReadingSession)
         .options(
@@ -35,6 +37,9 @@ async def get_all_reading_sessions(session: AsyncSession) -> list[ReadingSession
 async def get_user_reading_session(
     username: str, session: AsyncSession, limit: int = None
 ) -> list[ReadingSessionSchema]:
+    logger.info(
+        f"Try to get all reading sessions for user {username} with limit {limit}"
+    )
     statement = (
         select(ReadingSession)
         .join(ReadingSession.user)
@@ -58,6 +63,9 @@ async def get_user_book_reading_session(
     username: str, book_id: int, session: AsyncSession
 ) -> list[ReadingSessionSchema]:
 
+    logger.info(
+        f"Try to get all reading sessions for user {username} and book {book_id}"
+    )
     statement = (
         select(ReadingSession)
         .join(ReadingSession.user)
@@ -80,6 +88,7 @@ async def get_user_book_reading_session(
 async def get_reading_session_by_id(
     session: AsyncSession, session_id: int
 ) -> ReadingSession | None:
+    logger.info(f"Try to get reading session with id {session_id}")
     statement = (
         select(ReadingSession)
         .where(ReadingSession.id == session_id)
@@ -94,11 +103,15 @@ async def create_reading_session(
     session: AsyncSession, data: ReadingSessionCreate
 ) -> ReadingSession:
 
+    logger.info(f"Try to create new reading session with data {data}")
     user = select(User).where(User.username == data.username)
     result = await session.execute(user)
     user_db = result.scalar_one_or_none()
 
     if not user_db:
+        logger.error(
+            f"Failed to get user with username {data.username} - user was not found in db"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"user with username {data.username} was not found",
@@ -118,6 +131,7 @@ async def create_reading_session(
     current_page = data.end_page if data.end_page is not None else data.start_page
 
     if association:
+        logger.info(f"Reading session for user {user_db.username} already exists")
         if (
             association.status != BookReadStatus.READING
             and association.status != BookReadStatus.FINISHED
@@ -125,12 +139,15 @@ async def create_reading_session(
             association.status = BookReadStatus.READING
 
         if current_page > association.last_read_page:
+            logger.info(f"Set new current page {association.last_read_page}")
             association.last_read_page = current_page
 
             if association.book and current_page >= association.book.pages_count:
+                logger.info("Set book status as finished")
                 association.status = BookReadStatus.FINISHED
 
     else:
+        logger.info("Create new reading session")
         association = UserBookAssociation(
             user_id=user_db.id,
             book_id=data.book_id,
@@ -155,6 +172,7 @@ async def update_reading_session(
     reading_session_update: ReadingSessionUpdate | ReadingSessionUpdatePartial,
     partial: bool = False,
 ) -> ReadingSession:
+    logger.info(f"Try to update reading session with data: {reading_session_update}")
     update_data = reading_session_update.model_dump(exclude_unset=partial)
 
     for key, value in update_data.items():

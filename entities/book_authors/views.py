@@ -1,4 +1,5 @@
 import json
+from loguru import logger
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,13 +37,14 @@ async def get_all(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info("Get all book authors from Redis cache")
         return json.loads(cached)
 
     data = await crud.get_all_authors(session=session, limit=limit, offset=offset)
     result = [BookAuthorsSchema.model_validate(author) for author in data]
 
     serialized = [item.model_dump(mode="json") for item in result]
-
+    logger.info("Get serialized all book authors data")
     await redis_client.set(
         cache_key,
         json.dumps(serialized),
@@ -60,12 +62,14 @@ async def get_author_by_id(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get book author with id {author_id} from Redis cache")
         return json.loads(cached)
 
     data = await crud.get_author_by_id(session, author_id)
 
     if data:
         result = BookAuthorsSchema.model_validate(data)
+        logger.info(f"Return book author with id {author_id}")
 
         await redis_client.set(cache_key, result.model_dump_json(), ex=300)
         return result
@@ -79,7 +83,7 @@ async def create_author_view(
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     book_author = await crud.create_author(session, data)
-
+    logger.info("Create new book author")
     await invalidate_book_authors_cache()
     return book_author
 

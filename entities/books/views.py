@@ -3,6 +3,8 @@ import io
 from pathlib import Path
 from uuid import uuid4
 from typing import Optional
+
+from loguru import logger
 from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,7 +37,6 @@ async def get_all_books(
     limit: int | None = Query(default=None, ge=1, le=100),
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-
     normalized_search = search.strip().lower() if search else ""
 
     cache_key = (
@@ -46,12 +47,19 @@ async def get_all_books(
 
     cached = await redis_client.get(cache_key)
     if cached:
+        logger.info(
+            f"Get all books with search query {normalized_search} and limit {limit} from Redis cache"
+        )
         return json.loads(cached)
 
     books = await crud.get_all_books(
         session=session, limit=limit, search=normalized_search
     )
     result = [BookSchema.model_validate(book) for book in books]
+
+    logger.info(
+        f"Return all books with search query {normalized_search} and limit {limit} from db"
+    )
 
     await redis_client.set(
         cache_key, json.dumps([b.model_dump() for b in result]), ex=600
@@ -61,20 +69,24 @@ async def get_all_books(
 
 @router.get("/{book_id}", response_model=BookSchema)
 async def get_book_by_id(
-    book_id: int, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
+    book_id: int,
+    username: str,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-    cache_key = f"books:{book_id}"
+    cache_key = f"books:{book_id}:user:{username}"
 
     cached = await redis_client.get(cache_key)
     if cached:
+        logger.info(f"Get book with id {book_id} for user {username} from Redis cache")
         return json.loads(cached)
 
-    book = await crud.get_book_by_id(session, book_id)
+    book = await crud.get_book_by_id(session, book_id, username)
     if not book:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
     result = BookSchema.model_validate(book)
+    logger.info(f"Return book with id {book_id} for user {username} from db")
     await redis_client.set(cache_key, result.model_dump_json(), ex=300)
     return result
 
@@ -88,15 +100,18 @@ async def get_book_by_slug(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get book with slug {book_slug} from Redis cache")
         return json.loads(cached)
 
     book = await crud.get_book_by_slug(session, book_slug)
     if not book:
+        logger.error(f"Failed to get book {book_slug} - Book was not found in db")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
 
     result = BookSchema.model_validate(book)
+    logger.info(f"Return book {book_slug} from db")
     await redis_client.set(cache_key, result.model_dump_json(), ex=300)
     return result
 
@@ -112,6 +127,7 @@ async def get_book_by_slug_for_user(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get book {book_slug} for user {username} from Redis cache")
         return json.loads(cached)
 
     book_data = await crud.get_book_by_slug_for_user_with_status(
@@ -124,7 +140,7 @@ async def get_book_by_slug_for_user(
         )
 
     result = UserBookSchema.model_validate(book_data)
-
+    logger.info(f"Return book {book_slug} for user {username} from db")
     await redis_client.set(cache_key, result.model_dump_json(), ex=600)
 
     return result
@@ -139,6 +155,10 @@ async def delete_user_book_status(
     deleted = await crud.delete_user_book_status(session, username, book_slug)
 
     if not deleted:
+        logger.error(
+            f"Failed to delete reading book status in book "
+            f"{book_slug} for user {username} - book was not found in db"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
@@ -158,6 +178,7 @@ async def get_book_details(
     book_details = await crud.get_book_by_slug_for_user(session, book_slug, username)
 
     if not book_details:
+        logger.error(f"Failed to get book {book_slug} for user {username}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Book with slug {book_slug} was not found",
@@ -209,12 +230,14 @@ async def create_book(
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     new_book = await crud.create_book(session, data)
+    logger.info(f"Created book with data {data}")
     await redis_client.delete("books:all")
     return new_book
 
 
 @router.post("/upload-cover")
 async def upload_book_cover(file: UploadFile = File(...)):
+    logger.info(f"Upload book cover: {file.filename}")
     allowed_types = {
         "image/jpeg": ".jpg",
         "image/png": ".png",
@@ -222,6 +245,7 @@ async def upload_book_cover(file: UploadFile = File(...)):
     }
 
     if file.content_type not in allowed_types:
+        logger.error(f"Unsupported file type: {file.content_type}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Допустимі тільки JPG, PNG, та WEBP",
@@ -230,6 +254,7 @@ async def upload_book_cover(file: UploadFile = File(...)):
     content = await file.read()
 
     if len(content) > MAX_COVER_SIZE:
+        logger.error(f"File is too much")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Максимальний розмір файлу - 5 МБ",
@@ -253,6 +278,9 @@ async def update_or_add_book_status(
     try:
         assoc = await crud.set_user_book_status(session, username, book_slug, data)
     except ValueError as e:
+        logger.error(
+            f"Failed to set reading status in book {book_slug} for user {username} with data {data}"
+        )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
     await redis_client.delete(f"books:{username}:active")
@@ -350,9 +378,11 @@ async def export_user_library(
 
 @router.delete("/{book_id}")
 async def delete_book_view(
-    book_id: int, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
+    book_id: int,
+    username: str,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-    book = await crud.get_book_by_id(session, book_id)
+    book = await crud.get_book_by_id_without_username(session, book_id)
 
     if not book:
         raise HTTPException(

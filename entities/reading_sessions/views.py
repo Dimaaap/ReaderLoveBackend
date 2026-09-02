@@ -1,4 +1,6 @@
 import json
+
+from loguru import logger
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,11 +24,12 @@ async def get_all_reading_sessions(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get reading sessions from Redis cache")
         return json.loads(cached)
 
     data = await crud.get_all_reading_sessions(session)
     serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
-
+    logger.info("Return all reading sessions from db")
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data
 
@@ -41,11 +44,12 @@ async def get_reading_sessions_by_username(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get all reading sessions for user {username}, limit={limit}")
         return json.loads(cached)[:limit]
 
     data = await crud.get_user_reading_session(username, session, limit)
     serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
-
+    logger.info(f"Return all reading sessions for user {username} with limit {limit}")
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data
 
@@ -60,11 +64,13 @@ async def get_user_book_sessions(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get all reading sessions for user {username} and book {book_id}")
         return json.loads(cached)
 
     data = await crud.get_user_book_reading_session(username, book_id, session)
 
     serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
+    logger.info(f"Return all reading sessions for user {username} and book {book_id}")
 
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data
@@ -79,6 +85,7 @@ async def get_reading_session_by_id(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get reading session with id {session_id} from Redis cache")
         return json.loads(cached)
 
     db_session = await crud.get_reading_session_by_id(session, session_id)
@@ -88,6 +95,7 @@ async def get_reading_session_by_id(
             status_code=status.HTTP_404_NOT_FOUND, detail="Reading Session Not Found"
         )
 
+    logger.info(f"Return reading session {session_id} from db")
     result = ReadingSessionSchema.model_validate(db_session)
     await redis_client.set(cache_key, result.model_dump_json(), ex=300)
     return result
@@ -113,6 +121,9 @@ async def update_reading_session(
     reading_session = await crud.get_reading_session_by_id(session, session_id)
 
     if not reading_session:
+        logger.error(
+            f"Failed to update reading session with id {session_id} - reading session was not found"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Reading Session Not Found"
         )

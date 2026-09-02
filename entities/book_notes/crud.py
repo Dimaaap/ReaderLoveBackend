@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -14,6 +15,7 @@ from entities.book_notes.schema import (
 
 
 async def get_all_book_notes(session: AsyncSession) -> list[BookNotesSchema]:
+    logger.info("Get all book notes")
     statement = (
         select(BookNotes)
         .options(joinedload(BookNotes.book), joinedload(BookNotes.user))
@@ -29,6 +31,8 @@ async def get_all_book_notes(session: AsyncSession) -> list[BookNotesSchema]:
 async def get_user_notes(
     username: str, session: AsyncSession, limit: int = None
 ) -> list[BookNotesSchema]:
+    logger.info(f"Try to get all user notes for user {username} with limit {limit}")
+
     statement = (
         select(BookNotes)
         .join(BookNotes.user)
@@ -38,6 +42,7 @@ async def get_user_notes(
     )
 
     if limit is not None:
+        logger.info(f"limit={limit}")
         statement = statement.limit(limit)
 
     result = await session.execute(statement)
@@ -49,7 +54,7 @@ async def get_user_notes(
 async def get_user_book_notes(
     username: str, book_id: int, session: AsyncSession
 ) -> list[BookNotesSchema]:
-
+    logger.info(f"Try to get all book notes for username {username} and book {book_id}")
     statement = (
         select(BookNotes)
         .join(BookNotes.user)
@@ -67,6 +72,7 @@ async def get_user_book_notes(
 async def toggle_book_note_importance(
     session: AsyncSession, note_id: int
 ) -> BookNotes | None:
+    logger.info(f"Try to toggle importance for book note {note_id}")
     statement = (
         select(BookNotes)
         .where(BookNotes.id == note_id)
@@ -77,6 +83,9 @@ async def toggle_book_note_importance(
     book_note = result.scalar_one_or_none()
 
     if book_note is None:
+        logger.error(
+            f"Failed to toggle importance for book note {note_id} - book note was not found"
+        )
         return None
 
     book_note.is_important = not getattr(book_note, "is_important", False)
@@ -88,6 +97,8 @@ async def toggle_book_note_importance(
 async def get_book_note_by_id(
     session: AsyncSession, note_id: int
 ) -> BookNotesSchema | None:
+
+    logger.info(f"Try to get book note with id {note_id}")
     statement = (
         select(BookNotes)
         .where(BookNotes.id == note_id)
@@ -99,11 +110,18 @@ async def get_book_note_by_id(
 
 
 async def create_book_note(session: AsyncSession, data: BookNotesCreate) -> BookNotes:
+    logger.info(
+        f"Try to create book note for user {data.user_username}, data {data.note_text}"
+    )
     user_data = await session.execute(
         select(User).where(User.username == data.user_username)
     )
     user = user_data.scalar_one_or_none()
+
     if not user:
+        logger.error(
+            f"Failed to create book note for user {data.user_username} - USER WAS NOT FOUND"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="user not found"
         )
@@ -124,6 +142,7 @@ async def update_book_note(
     partial: bool = False,
 ) -> BookNotes:
 
+    logger.info(f"Try to update book note {book_note_id} with data {book_note_update}")
     book_note_sql = await session.execute(
         select(BookNotes).where(BookNotes.id == book_note_id)
     )
@@ -141,6 +160,7 @@ async def update_book_note(
 
 
 async def delete_book_note(session: AsyncSession, note_id: int) -> (bool, BookNotes):
+    logger.info(f"Try to delete book note with id {note_id}")
     result = await session.execute(
         select(BookNotes)
         .where(BookNotes.id == note_id)
@@ -150,6 +170,9 @@ async def delete_book_note(session: AsyncSession, note_id: int) -> (bool, BookNo
     deleted_note = book_note
 
     if book_note is None:
+        logger.error(
+            f"Failed to delete book note with id {note_id} - book note was not found"
+        )
         return False, None
 
     await session.delete(book_note)

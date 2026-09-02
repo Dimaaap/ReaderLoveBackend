@@ -1,4 +1,6 @@
 import json
+
+from loguru import logger
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,10 +25,12 @@ async def get_all_book_notes(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info("Get all book notes from Redis cache")
         return json.loads(cached)
 
     data = await crud.get_all_book_notes(session)
     serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
+    logger.info("Get all book notes from db")
 
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data
@@ -55,10 +59,13 @@ async def get_book_notes_by_username(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Try to get all book notes for user {username} from Redis cache")
         return json.loads(cached)[:limit]
 
     data = await crud.get_user_notes(username, session, limit)
     serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
+
+    logger.info(f"Return all book notes for user {username} from db")
 
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data
@@ -74,11 +81,16 @@ async def get_user_book_notes(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(
+            f"Get all book notes for user {username} and book {book_id} from Redis cache"
+        )
         return json.loads(cached)
 
     data = await crud.get_user_book_notes(username, book_id, session)
 
     serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
+
+    logger.info(f"Return all book notes for user {username} and book {book_id} from db")
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data
 
@@ -91,6 +103,7 @@ async def get_book_note_by_id(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get book note {note_id} from Redis cache ")
         return json.loads(cached)
 
     db_note = await crud.get_book_note_by_id(session, note_id)
@@ -101,6 +114,7 @@ async def get_book_note_by_id(
         )
 
     result = BookNotesSchema.model_validate(db_note)
+    logger.info(f"Return book note {note_id} from db")
     await redis_client.set(cache_key, result.model_dump_json(), ex=300)
     return result
 
@@ -109,6 +123,7 @@ async def get_book_note_by_id(
 async def toggle_book_notes_importance(
     note_id: int, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
 ):
+    logger.info(f"Toggle importance for book note {note_id}")
     updated_note = await crud.toggle_book_note_importance(session, note_id)
 
     if updated_note is None:
@@ -141,6 +156,9 @@ async def update_book_note(
     book_note = await crud.get_book_note_by_id(session, book_note_id)
 
     if not book_note:
+        logger.error(
+            f"Failed to update book note {book_note_id} - book note was not found"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book note not found"
         )

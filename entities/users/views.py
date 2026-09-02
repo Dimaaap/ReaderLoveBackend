@@ -176,7 +176,7 @@ async def logout(request: Request, response: Response):
 
 @router.post("/login")
 async def login(
-    data: LoginSchema,
+    data: SignupRequest,
     response: Response,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):

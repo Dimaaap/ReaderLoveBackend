@@ -1,4 +1,6 @@
 import json
+
+from loguru import logger
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,10 +28,12 @@ async def get_all_book_reviews(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info("Get all book reviews from Redis cache")
         return json.loads(cached)
 
     data = await crud.get_all_book_reviews(session)
     serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
+    logger.info("Return all book reviews from db")
 
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data
@@ -82,10 +86,17 @@ async def get_book_reviews(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(
+            f"Get all reviews for book with id {book_id} query params: limit={limit}, "
+            f"offset={offset} from Redis cache"
+        )
         return json.loads(cached)
 
     data = await crud.get_book_reviews(book_id, session, limit, offset)
     serialized_data = json.dumps([item.model_dump(mode="json") for item in data])
+    logger.info(
+        f"Return all review for book with id {book_id} query params: limit={limit}, offset={offset} from db"
+    )
     await redis_client.set(cache_key, serialized_data, ex=300)
     return data
 
@@ -98,6 +109,7 @@ async def get_book_review_by_id(
     cached = await redis_client.get(cache_key)
 
     if cached:
+        logger.info(f"Get book review with id {review_id}")
         return json.loads(cached)
 
     db_review = await crud.get_book_review_by_id(session, review_id)
@@ -107,6 +119,7 @@ async def get_book_review_by_id(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book review not found"
         )
 
+    logger.info(f"Return book review with id {review_id} from db")
     await redis_client.set(cache_key, db_review.model_dump_json(), ex=300)
     return db_review
 
@@ -120,6 +133,7 @@ async def update_book_review(
     existing_review = await crud.get_book_review_by_id(session, review_id)
 
     if not existing_review:
+        logger.error(f"Failed to update book review. Review {review_id} was not found")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book review not found"
         )
