@@ -122,27 +122,15 @@ async def get_book_by_slug_for_user(
     username: str,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-    cache_key = f"book:{username}:{book_slug}"
-
-    cached = await redis_client.get(cache_key)
-
-    if cached:
-        logger.info(f"Get book {book_slug} for user {username} from Redis cache")
-        return json.loads(cached)
-
     book_data = await crud.get_book_by_slug_for_user_with_status(
         session, book_slug, username
     )
-
     if not book_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
-
     result = UserBookSchema.model_validate(book_data)
     logger.info(f"Return book {book_slug} for user {username} from db")
-    await redis_client.set(cache_key, result.model_dump_json(), ex=600)
-
     return result
 
 
@@ -320,17 +308,7 @@ async def update_book(
 async def get_user_active_books(
     username: str, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
 ):
-    cache_key = f"books:{username}:active"
-
-    cached = await redis_client.get(cache_key)
-
-    if cached:
-        return json.loads(cached)
-
     books = await crud.get_user_active_books_for_notes(username, session)
-    await redis_client.set(
-        cache_key, json.dumps([b.model_dump() for b in books]), ex=600
-    )
     return books
 
 

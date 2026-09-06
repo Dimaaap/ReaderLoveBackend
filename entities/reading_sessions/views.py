@@ -108,6 +108,7 @@ async def create_reading_session(
 ):
     reading_session = await crud.create_reading_session(session, data)
     await redis_client.delete("reading_sessions:all")
+    await redis_client.delete(f"reading_sessions:{reading_session.id}")
 
     return reading_session
 
