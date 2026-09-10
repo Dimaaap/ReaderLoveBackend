@@ -1,7 +1,9 @@
 from fastapi import HTTPException, status
+from datetime import datetime
+import calendar
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, extract
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -249,3 +251,30 @@ async def delete_reading_session(session: AsyncSession, session_id: int) -> bool
 
     await session.commit()
     return True
+
+
+async def get_user_monthly_reading_sessions(
+    username: str, year: int, month: int, session: AsyncSession
+) -> list[ReadingSessionSchema]:
+    logger.info(f"Try to get reading sessions for user {username} for {year}-{month}")
+
+    _, last_day = calendar.monthrange(year, month)
+    start_date = datetime(year, month, 1, 0, 0, 0)
+    end_date = datetime(year, month, last_day, 23, 59, 59)
+
+    statement = (
+        select(ReadingSession)
+        .join(ReadingSession.user)
+        .where(
+            User.username == username,
+            ReadingSession.started_at >= start_date,
+            ReadingSession.started_at <= end_date,
+        )
+        .options(joinedload(ReadingSession.book), joinedload(ReadingSession.user))
+        .order_by(ReadingSession.started_at.asc())
+    )
+
+    result = await session.execute(statement)
+    reading_session = result.scalars().all()
+
+    return [ReadingSessionSchema.model_validate(s) for s in reading_session]

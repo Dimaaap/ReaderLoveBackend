@@ -149,3 +149,17 @@ async def delete_reading_session_by_id(
             await redis_client.delete(f"reading_sessions:{session_id}")
         except Exception:
             return
+
+
+@router.get("/calendar/{username}")
+async def get_user_calendar_sessions(
+    username: str,
+    year: int,
+    month: int,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    data = await crud.get_user_monthly_reading_sessions(username, year, month, session)
+    logger.info(
+        f"Return calendar sessions for user {username} ({year}-{month}) from DB"
+    )
+    return data
