@@ -19,6 +19,9 @@ class BookBase(BaseModel):
     publish_date: str | int | None = None
     language: str | None = None
 
+    rating: float = Field(default=0.0, ge=0.0, le=5.0)
+    reviews_count: int = Field(default=0, ge=0)
+
 
 class AuthorInsideBook(BaseModel):
     first_name: str
@@ -46,10 +49,9 @@ class BookUpdatePartial(BookUpdate):
 
 class BookSchema(BookBase):
     id: int
-    image_link: str | None = None
 
-    genres: list[BookGenreSchema]
-    authors: list[BookAuthorsSchema]
+    genres: list[BookGenreSchema] = []
+    authors: list[BookAuthorsSchema] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,6 +68,7 @@ class MiniReadingSessionSchema(BaseModel):
 
 
 class PublisherSchema(BaseModel):
+    id: int
     title: str
 
     model_config = ConfigDict(from_attributes=True)

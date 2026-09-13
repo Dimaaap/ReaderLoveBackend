@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from .base import Base
 
-from sqlalchemy import String, Text, Integer, ForeignKey
+from sqlalchemy import String, Text, Integer, ForeignKey, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -25,6 +25,12 @@ class Book(Base):
     description: Mapped[Text] = mapped_column(Text, nullable=True)
     publish_date: Mapped[str] = mapped_column(String(100), nullable=True)
     language: Mapped[str] = mapped_column(String(50), nullable=True)
+    rating: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0.0", nullable=False
+    )
+    reviews_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     publisher_id: Mapped[int | None] = mapped_column(
         ForeignKey("book_publishers.id"), nullable=True

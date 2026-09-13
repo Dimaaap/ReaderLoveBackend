@@ -1,58 +1,80 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+
+
+class UserInSessionSchema(BaseModel):
+    username: str
+    email: EmailStr
+    avatar: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BookInSessionSchema(BaseModel):
+    id: int
+    title: str
+    slug: str
+    image_link: str | None = None
+    pages_count: int | None = None
+    authors: list[str] = []
+    rating: float = 0.0
+    reviews_count: int = 0
+    description: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("authors", mode="before")
+    @classmethod
+    def convert_authors_to_strings(cls, v):
+        if isinstance(v, list) and v:
+            result = []
+            for item in v:
+                if isinstance(item, str):
+                    result.append(item)
+                elif hasattr(item, "last_name"):
+                    first_name = getattr(item, "first_name", "") or ""
+                    last_name = getattr(item, "last_name", "") or ""
+                    full_name = f"{first_name} {last_name}".strip()
+                    result.append(full_name)
+            return result
+        return v
 
 
 class ReadingSessionBase(BaseModel):
-    user_id: str
     book_id: int
-    started_at: datetime
-    ended_at: datetime | None = None
     start_page: int
     end_page: int | None = None
     is_tracked: bool = True
+    comment: str | None = None
 
 
-class ReadingSessionCreate(BaseModel):
-    username: str
-    book_id: int
+class ReadingSessionCreate(ReadingSessionBase):
     started_at: datetime | None = None
     ended_at: datetime | None = None
-    start_page: int
-    end_page: int | None = None
-    is_tracked: bool = True
 
 
-class ReadingSessionUpdate(ReadingSessionCreate): ...
-
-
-class ReadingSessionUpdatePartial(ReadingSessionUpdate):
-    username: str | None = None
-    book_id: int | None = None
-    started_at: datetime | None = None
+class ReadingSessionUpdate(BaseModel):
     start_page: int | None = None
+    end_page: int | None = None
+    comment: str | None = None
+    is_tracked: bool | None = None
+    ended_at: datetime | None = None
 
 
-class UserReadingSessionSchema(BaseModel):
-    username: str
-    email: EmailStr
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class BookReadingSessionSchema(BaseModel):
-    title: str
-    slug: str
-    image_link: str
-    pages_count: int
-
-    model_config = ConfigDict(from_attributes=True)
+class ReadingSessionUpdatePartial(ReadingSessionUpdate): ...
 
 
 class ReadingSessionSchema(ReadingSessionBase):
     id: int
+    user_id: str
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
 
-    user: UserReadingSessionSchema
-    book: BookReadingSessionSchema
+    user: UserInSessionSchema
+    book: BookInSessionSchema
+
+    reactions: dict[str, int] = {}
+    user_reactions: list[str] = []
 
     model_config = ConfigDict(from_attributes=True)

@@ -113,6 +113,7 @@ async def get_book_by_id(
             selectinload(Book.authors),
             selectinload(Book.genres),
             selectinload(Book.publisher),
+            selectinload(Book.reviews),
         )
     )
 
@@ -123,7 +124,15 @@ async def get_book_by_id(
         logger.error(f"Failed to get book with id {book_id} - book was not found in db")
         return None
 
+    reviews = getattr(book, "reviews", [])
+    reviews_count = len(reviews)
+    avg_rating = (
+        sum(r.rating for r in reviews) / reviews_count if reviews_count > 0 else 0.0
+    )
+
     book_detail = BookDetailSchema.model_validate(book)
+    book_detail.rating = round(avg_rating, 1)
+    book_detail.reviews_count = reviews_count
 
     if username:
         user_stmt = (
@@ -140,41 +149,37 @@ async def get_book_by_id(
         user_result = await session.execute(user_stmt)
         user_row = user_result.first()
 
-        if user_row:
+        if user_row and user_row.id:
             user_id, last_read_page, status_val = user_row
-            logger.info(
-                f"Get user data for book - {user_id}, {last_read_page}, {status_val}"
-            )
 
             book_detail.read_pages = last_read_page or 0
             book_detail.status = (
                 status_val.value if hasattr(status_val, "value") else status_val
             )
 
-            if user_id:
-                stats_statement = select(
-                    func.count(ReadingSession.id).label("sessions_count"),
-                    func.max(
-                        case(
-                            (ReadingSession.ended_at.is_(None), ReadingSession.id),
-                            else_=None,
-                        )
-                    ).label("active_session_id"),
-                ).where(
-                    ReadingSession.book_id == book.id, ReadingSession.user_id == user_id
-                )
+            stats_statement = select(
+                func.count(ReadingSession.id).label("sessions_count"),
+                func.max(
+                    case(
+                        (ReadingSession.ended_at.is_(None), ReadingSession.id),
+                        else_=None,
+                    )
+                ).label("active_session_id"),
+            ).where(
+                ReadingSession.book_id == book.id, ReadingSession.user_id == user_id
+            )
 
-                stats_result = await session.execute(stats_statement)
-                stats = stats_result.one()
+            stats_result = await session.execute(stats_statement)
+            stats = stats_result.one()
 
-                book_detail.reading_sessions_count = stats.sessions_count
-                book_detail.active_session_id = stats.active_session_id
-                logger.info(
-                    f"Calculated reading sessions count and active session_id for book: {stats.sessions_count}"
-                    f"{status.active_session_id}"
-                )
+            book_detail.reading_sessions_count = stats.sessions_count
+            book_detail.active_session_id = stats.active_session_id
+            logger.info(
+                f"Calculated reading sessions count ({stats.sessions_count}) "
+                f"and active session_id ({stats.active_session_id}) for book"
+            )
 
-    return BookSchemaWithSessions.model_validate(book)
+    return BookSchemaWithSessions.model_validate(book_detail)
 
 
 async def get_book_by_slug(session: AsyncSession, book_slug: str) -> Book | None:
@@ -220,7 +225,7 @@ async def get_book_by_slug_for_user_with_status(
         logger.error(f"Failed to get book {book_slug} for user {username}")
         return None
 
-    book, status, last_read_page, user_id = row
+    book, user_status, last_read_page, user_id = row
     book_detail = BookDetailSchema.model_validate(book)
 
     if user_id:
@@ -242,7 +247,7 @@ async def get_book_by_slug_for_user_with_status(
         )
 
     book_detail.read_pages = last_read_page or 0
-    book_detail.status = status
+    book_detail.status = user_status
 
     return book_detail.model_dump(by_alias=False)
 
@@ -281,7 +286,11 @@ async def get_book_by_slug_for_user_with_sessions_stats(
     book_statement = (
         select(Book)
         .where(Book.slug == book_slug)
-        .options(selectinload(Book.authors), selectinload(Book.genres))
+        .options(
+            selectinload(Book.authors),
+            selectinload(Book.genres),
+            selectinload(Book.reviews),
+        )
     )
     book_result = await session.execute(book_statement)
     book = book_result.scalar_one_or_none()
@@ -304,7 +313,7 @@ async def get_book_by_slug_for_user_with_sessions_stats(
     user_result = await session.execute(user_stmt)
     user_row = user_result.first()
 
-    if not user_row:
+    if not user_row or not user_row.id:
         book_data = BookSchema.model_validate(book).model_dump()
         return BookSchemaWithSessions(**book_data)
 
@@ -319,11 +328,9 @@ async def get_book_by_slug_for_user_with_sessions_stats(
     latest_session_result = await session.execute(latest_session_stmt)
     latest_end_page = latest_session_result.scalar_one_or_none()
 
-    if latest_end_page is not None:
-        read_pages = latest_end_page
-    else:
-        read_pages = assoc_last_read_page if assoc_last_read_page is not None else 0
-
+    read_pages = (
+        latest_end_page if latest_end_page is not None else (assoc_last_read_page or 0)
+    )
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
     stats_statement = select(
@@ -563,8 +570,8 @@ async def get_book_by_slug_for_user(
     active_session_id = None
     last_read_page = 0
 
-    if not user_row:
-        user_id, last_read_page = user_row
+    if user_row and user_row.id:
+        user_id, last_read_page = user_row.id, user_row.last_read_page
 
         stats_statement = select(
             func.count(ReadingSession.id).label("sessions_count"),
@@ -578,15 +585,13 @@ async def get_book_by_slug_for_user(
 
         sessions_count = stats.sessions_count
         active_session_id = stats.active_session_id
-        logger.info(
-            f"sessions count {stats.sessions_count} active session id {stats.active_session_id}"
-        )
 
-    book.reading_sessions_count = sessions_count
-    book.read_pages = last_read_page or 0
-    book.active_session_id = active_session_id
+    book_detail = BookDetailSchema.model_validate(book)
+    book_detail.reading_sessions_count = sessions_count
+    book_detail.read_pages = last_read_page or 0
+    book_detail.active_session_id = active_session_id
 
-    return BookDetailSchema.model_validate(book)
+    return book_detail
 
 
 async def get_current_main_reading_book(

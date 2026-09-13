@@ -22,6 +22,7 @@ __all__ = (
     "UserFriends",
     "BookReview",
     "BookPublisher",
+    "SessionReaction",
 )
 
 from .base import Base
@@ -46,3 +47,4 @@ from .user_settings import UserSettings
 from .user_friends import UserFriends
 from .book_reviews import BookReview
 from .book_publishers import BookPublisher
+from .session_reactions import SessionReaction

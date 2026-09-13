@@ -3,41 +3,79 @@ from datetime import datetime
 import calendar
 
 from loguru import logger
-from sqlalchemy import select, extract
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from core.models import ReadingSession, User, UserBookAssociation
+from core.models import ReadingSession, User, UserBookAssociation, Book, SessionReaction
 from core.models.user_book_association import BookReadStatus
 from entities.reading_sessions.schema import (
     ReadingSessionSchema,
     ReadingSessionCreate,
     ReadingSessionUpdate,
     ReadingSessionUpdatePartial,
+    BookInSessionSchema,
+    UserInSessionSchema,
 )
 
 
-async def get_all_reading_sessions(session: AsyncSession) -> list[ReadingSessionSchema]:
+def map_session_to_schema(
+    db_session: ReadingSession, current_user_id: str | None = None
+) -> ReadingSessionSchema:
+    reactions_count: dict[str, int] = {}
+    user_reactions: list[str] = []
+
+    db_reactions = getattr(db_session, "reactions", []) or []
+    for r in db_reactions:
+        reactions_count[r.emoji] = reactions_count.get(r.emoji, 0) + 1
+        if current_user_id and str(r.user_id) == str(current_user_id):
+            user_reactions.append(r.emoji)
+
+    book_schema = BookInSessionSchema.model_validate(db_session.book)
+    user_schema = UserInSessionSchema.model_validate(db_session.user)
+
+    return ReadingSessionSchema(
+        id=db_session.id,
+        user_id=str(db_session.user_id),
+        book_id=db_session.book_id,
+        start_page=db_session.start_page,
+        end_page=db_session.end_page,
+        is_tracked=db_session.is_tracked,
+        comment=db_session.comment,
+        started_at=db_session.started_at,
+        ended_at=db_session.ended_at,
+        user=user_schema,
+        book=book_schema,
+        reactions=reactions_count,
+        user_reactions=user_reactions,
+    )
+
+
+async def get_all_reading_sessions(
+    session: AsyncSession, current_user_id: str | None = None
+) -> list[ReadingSessionSchema]:
     logger.info("Try to get all reading sessions")
     statement = (
         select(ReadingSession)
         .options(
-            joinedload(ReadingSession.book),
             joinedload(ReadingSession.user),
+            joinedload(ReadingSession.book).selectinload(Book.authors),
+            selectinload(ReadingSession.reactions),
         )
-        .order_by(ReadingSession.id)
+        .order_by(ReadingSession.started_at.desc())
     )
 
     result = await session.execute(statement)
+    reading_sessions = result.scalars().unique().all()
 
-    reading_sessions = result.scalars().all()
-    return [
-        ReadingSessionSchema.model_validate(session) for session in reading_sessions
-    ]
+    return [map_session_to_schema(s, current_user_id) for s in reading_sessions]
 
 
 async def get_user_reading_session(
-    username: str, session: AsyncSession, limit: int = None
+    username: str,
+    session: AsyncSession,
+    limit: int = None,
+    current_user_id: str | None = None,
 ) -> list[ReadingSessionSchema]:
     logger.info(
         f"Try to get all reading sessions for user {username} with limit {limit}"
@@ -46,7 +84,11 @@ async def get_user_reading_session(
         select(ReadingSession)
         .join(ReadingSession.user)
         .where(User.username == username)
-        .options(joinedload(ReadingSession.book), joinedload(ReadingSession.user))
+        .options(
+            joinedload(ReadingSession.user),
+            joinedload(ReadingSession.book).selectinload(Book.authors),
+            selectinload(ReadingSession.reactions),
+        )
         .order_by(ReadingSession.started_at.desc())
     )
 
@@ -54,15 +96,16 @@ async def get_user_reading_session(
         statement = statement.limit(limit)
 
     result = await session.execute(statement)
-    reading_sessions = result.scalars().all()
+    reading_sessions = result.scalars().unique().all()
 
-    return [
-        ReadingSessionSchema.model_validate(session) for session in reading_sessions
-    ]
+    return [map_session_to_schema(s, current_user_id) for s in reading_sessions]
 
 
 async def get_user_book_reading_session(
-    username: str, book_id: int, session: AsyncSession
+    username: str,
+    book_id: int,
+    session: AsyncSession,
+    current_user_id: str | None = None,
 ) -> list[ReadingSessionSchema]:
 
     logger.info(
@@ -75,16 +118,18 @@ async def get_user_book_reading_session(
             User.username == username,
             ReadingSession.book_id == book_id,
         )
-        .options(joinedload(ReadingSession.book), joinedload(ReadingSession.user))
+        .options(
+            joinedload(ReadingSession.user),
+            joinedload(ReadingSession.book).selectinload(Book.authors),
+            selectinload(ReadingSession.reactions),
+        )
         .order_by(ReadingSession.started_at.desc())
     )
 
     result = await session.execute(statement)
-    reading_sessions = result.scalars().all()
+    reading_sessions = result.scalars().unique().all()
 
-    return [
-        ReadingSessionSchema.model_validate(session) for session in reading_sessions
-    ]
+    return [map_session_to_schema(s, current_user_id) for s in reading_sessions]
 
 
 async def get_reading_session_by_id(
@@ -94,7 +139,11 @@ async def get_reading_session_by_id(
     statement = (
         select(ReadingSession)
         .where(ReadingSession.id == session_id)
-        .options(joinedload(ReadingSession.book), joinedload(ReadingSession.user))
+        .options(
+            joinedload(ReadingSession.user),
+            joinedload(ReadingSession.book).selectinload(Book.authors),
+            selectinload(ReadingSession.reactions),
+        )
     )
 
     result = await session.execute(statement)
@@ -253,6 +302,30 @@ async def delete_reading_session(session: AsyncSession, session_id: int) -> bool
     return True
 
 
+async def toggle_session_reaction(
+    session: AsyncSession, session_id: int, user_id: str, emoji: str
+) -> str:
+    stmt = select(SessionReaction).where(
+        SessionReaction.session_id == session_id,
+        SessionReaction.user_id == user_id,
+        SessionReaction.emoji == emoji,
+    )
+    result = await session.execute(stmt)
+    existing_reaction = result.scalar_one_or_none()
+
+    if existing_reaction:
+        await session.delete(existing_reaction)
+        await session.commit()
+        return "removed"
+    else:
+        new_reaction = SessionReaction(
+            session_id=session_id, user_id=user_id, emoji=emoji
+        )
+        session.add(new_reaction)
+        await session.commit()
+        return "added"
+
+
 async def get_user_monthly_reading_sessions(
     username: str, year: int, month: int, session: AsyncSession
 ) -> list[ReadingSessionSchema]:
@@ -270,11 +343,15 @@ async def get_user_monthly_reading_sessions(
             ReadingSession.started_at >= start_date,
             ReadingSession.started_at <= end_date,
         )
-        .options(joinedload(ReadingSession.book), joinedload(ReadingSession.user))
+        .options(
+            joinedload(ReadingSession.user),
+            joinedload(ReadingSession.book).selectinload(Book.authors),
+            selectinload(ReadingSession.reactions),
+        )
         .order_by(ReadingSession.started_at.asc())
     )
 
     result = await session.execute(statement)
-    reading_session = result.scalars().all()
+    reading_sessions = result.scalars().unique().all()
 
-    return [ReadingSessionSchema.model_validate(s) for s in reading_session]
+    return [map_session_to_schema(s) for s in reading_sessions]

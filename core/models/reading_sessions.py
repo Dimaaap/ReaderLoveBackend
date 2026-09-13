@@ -2,7 +2,7 @@ from datetime import datetime
 import os
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, DateTime, Integer, Boolean, ForeignKey, func
+from sqlalchemy import String, DateTime, Integer, Boolean, ForeignKey, func, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -10,6 +10,7 @@ from .base import Base
 if TYPE_CHECKING:
     from .users import User
     from .books import Book
+    from .session_reactions import SessionReaction
 
 
 class ReadingSession(Base):
@@ -43,9 +44,13 @@ class ReadingSession(Base):
     end_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     is_tracked: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="reading_sessions")
     book: Mapped["Book"] = relationship("Book", back_populates="reading_sessions")
+    reactions: Mapped[list["SessionReaction"]] = relationship(
+        "SessionReaction", back_populates="session", cascade="all, delete-orphan"
+    )
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(user_id={self.user_id}, book_id={self.book_id}, start_at={self.started_at})"
