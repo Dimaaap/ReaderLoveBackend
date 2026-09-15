@@ -23,6 +23,9 @@ __all__ = (
     "BookReview",
     "BookPublisher",
     "SessionReaction",
+    "Challenge",
+    "ChallengeBook",
+    "UserChallenge",
 )
 
 from .base import Base
@@ -48,3 +51,6 @@ from .user_friends import UserFriends
 from .book_reviews import BookReview
 from .book_publishers import BookPublisher
 from .session_reactions import SessionReaction
+from .challenge import Challenge
+from .challenge_book import ChallengeBook
+from .user_challenge import UserChallenge

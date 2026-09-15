@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 
+from core.models.user_book_association import BookReadStatus
+
 
 class UserInSessionSchema(BaseModel):
     username: str
@@ -21,6 +23,9 @@ class BookInSessionSchema(BaseModel):
     rating: float = 0.0
     reviews_count: int = 0
     description: str | None = None
+
+    status: BookReadStatus | None = None
+    last_read_page: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -50,6 +55,7 @@ class ReadingSessionBase(BaseModel):
 
 
 class ReadingSessionCreate(ReadingSessionBase):
+    username: str
     started_at: datetime | None = None
     ended_at: datetime | None = None
 

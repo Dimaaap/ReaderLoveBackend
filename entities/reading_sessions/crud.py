@@ -20,7 +20,10 @@ from entities.reading_sessions.schema import (
 
 
 def map_session_to_schema(
-    db_session: ReadingSession, current_user_id: str | None = None
+    db_session: ReadingSession,
+    current_user_id: str | None = None,
+    book_status: str | None = None,
+    last_read_page: int = 0,
 ) -> ReadingSessionSchema:
     reactions_count: dict[str, int] = {}
     user_reactions: list[str] = []
@@ -31,7 +34,15 @@ def map_session_to_schema(
         if current_user_id and str(r.user_id) == str(current_user_id):
             user_reactions.append(r.emoji)
 
-    book_schema = BookInSessionSchema.model_validate(db_session.book)
+    base_book_schema = BookInSessionSchema.model_validate(db_session.book)
+
+    book_schema = base_book_schema.model_copy(
+        update={
+            "status": book_status,
+            "last_read_page": last_read_page,
+        }
+    )
+
     user_schema = UserInSessionSchema.model_validate(db_session.user)
 
     return ReadingSessionSchema(
@@ -49,6 +60,12 @@ def map_session_to_schema(
         reactions=reactions_count,
         user_reactions=user_reactions,
     )
+
+
+async def get_user_id_by_username(session: AsyncSession, username: str) -> int | None:
+    statement = select(User.id).where(User.username == username)
+    result = await session.execute(statement)
+    return result.scalar_one_or_none()
 
 
 async def get_all_reading_sessions(
@@ -170,7 +187,7 @@ async def create_reading_session(
 
     association_statement = (
         select(UserBookAssociation)
-        .options(selectinload(UserBookAssociation.book))
+        .options(joinedload(UserBookAssociation.book))
         .where(
             UserBookAssociation.user_id == user_db.id,
             UserBookAssociation.book_id == data.book_id,
@@ -182,7 +199,7 @@ async def create_reading_session(
     current_page = data.end_page if data.end_page is not None else data.start_page
 
     if association:
-        logger.info(f"Reading session for user {user_db.username} already exists")
+        logger.info(f"Reading session for user {data.username} already exists")
         if (
             association.status != BookReadStatus.READING
             and association.status != BookReadStatus.FINISHED
@@ -213,8 +230,18 @@ async def create_reading_session(
 
     session.add(reading_session)
     await session.commit()
-    await session.refresh(reading_session, ["user", "book"])
-    return reading_session
+
+    full_session_statement = (
+        select(ReadingSession)
+        .where(ReadingSession.id == reading_session.id)
+        .options(
+            joinedload(ReadingSession.user),
+            joinedload(ReadingSession.book).selectinload(Book.authors),
+            selectinload(ReadingSession.reactions),
+        )
+    )
+    full_session_result = await session.execute(full_session_statement)
+    return full_session_result.scalar_one()
 
 
 async def update_reading_session(
@@ -355,3 +382,44 @@ async def get_user_monthly_reading_sessions(
     reading_sessions = result.scalars().unique().all()
 
     return [map_session_to_schema(s) for s in reading_sessions]
+
+
+async def get_active_reading_sessions(
+    session: AsyncSession, current_user_id: str | int | None = None
+) -> list[ReadingSessionSchema]:
+    statement = (
+        select(
+            ReadingSession,
+            UserBookAssociation.status,
+            UserBookAssociation.last_read_page,
+        )
+        .outerjoin(
+            UserBookAssociation,
+            (UserBookAssociation.book_id == ReadingSession.book_id)
+            & (UserBookAssociation.user_id == ReadingSession.user_id),
+        )
+        .where(ReadingSession.ended_at.is_(None))
+        .options(
+            joinedload(ReadingSession.user),
+            joinedload(ReadingSession.book).selectinload(Book.authors),
+            selectinload(ReadingSession.reactions),
+        )
+        .order_by(ReadingSession.started_at.desc())
+    )
+
+    result = await session.execute(statement)
+    rows = result.unique().all()
+
+    sessions_list = []
+    for reading_session, book_status, last_read_page in rows:
+        status_val = book_status.value if hasattr(book_status, "value") else book_status
+
+        session_schema = map_session_to_schema(
+            reading_session,
+            current_user_id=current_user_id,
+            book_status=book_status,
+            last_read_page=last_read_page or 0,
+        )
+        sessions_list.append(session_schema)
+
+    return sessions_list
