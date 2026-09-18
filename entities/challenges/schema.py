@@ -1,6 +1,8 @@
+import nh3
+
 from datetime import date, datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from core.models.challenge import ChallengeType
 from entities.books.schema import BookSchema
@@ -39,15 +41,45 @@ class UserChallengeSchema(BaseModel):
 
 class ChallengeBase(BaseModel):
     title: str
-    description: Optional[str] = None
+    description: str = Field(..., description="HTML content for challenge description")
     slug: str
     target_count: int = 1
     challenge_type: ChallengeType = ChallengeType.BOOK
+    active: bool = True
     start_date: date
     end_date: date
     badge_color: Optional[str] = "#3B82F6"
     sponsor_name: Optional[str] = None
     publisher_id: Optional[int] = None
+
+    @field_validator("description", mode="after")
+    @classmethod
+    def sanitize_html_description(cls, value: str) -> str:
+        allowed_tags = {
+            "div" "p",
+            "b",
+            "i",
+            "strong",
+            "em",
+            "u",
+            "s",
+            "h1",
+            "h2",
+            "h3",
+            "ul",
+            "ol",
+            "li",
+            "a",
+            "br",
+            "blockquote",
+        }
+        allowed_attributes = {"a": {"href", "title", "target"}}
+
+        cleaned_html = nh3.clean(
+            value, tags=allowed_tags, attributes=allowed_attributes
+        )
+
+        return cleaned_html
 
 
 class ChallengeCreate(ChallengeBase): ...
@@ -70,6 +102,20 @@ class ChallengeSchema(ChallengeBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ParticipantPreviewSchema(BaseModel):
+    id: str
+    username: str
+    avatar: Optional[str] = None
+    avatar_color: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChallengeWithParticipantsSummarySchema(ChallengeSchema):
+    participants_count: int
+    preview_participants: list[ParticipantPreviewSchema]
 
 
 class ChallengeWithDetailsSchema(ChallengeSchema):

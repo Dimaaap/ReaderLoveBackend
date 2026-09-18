@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from loguru import logger
 from fastapi import status, HTTPException
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,6 +13,8 @@ from entities.challenges.schema import (
     ChallengeUpdate,
     ChallengeUpdatePartial,
     ChallengeWithDetailsSchema,
+    ChallengeWithParticipantsSummarySchema,
+    ParticipantPreviewSchema,
 )
 
 
@@ -285,3 +287,54 @@ async def leave_challenge(
         await session.commit()
         return True
     return False
+
+
+async def get_challenge_with_participants_summary(
+    session: AsyncSession, challenge_id_or_slug: int | str
+) -> ChallengeWithParticipantsSummarySchema | None:
+    logger.info(
+        f"Get challenge summary for '{challenge_id_or_slug}' with participants count"
+    )
+
+    if isinstance(challenge_id_or_slug, int) or (
+        isinstance(challenge_id_or_slug, str) and challenge_id_or_slug.isdigit()
+    ):
+        statement = select(Challenge).where(Challenge.id == int(challenge_id_or_slug))
+    else:
+        statement = select(Challenge).where(
+            (Challenge.id == challenge_id_or_slug)
+            | (Challenge.slug == challenge_id_or_slug)
+        )
+
+    res = await session.execute(statement)
+    challenge = res.scalar_one_or_none()
+
+    if not challenge:
+        return None
+
+    count_statement = select(func.count(UserChallenge.user_id)).where(
+        UserChallenge.challenge_id == challenge.id
+    )
+
+    count_res = await session.execute(count_statement)
+    total_participants = count_res.scalar() or 0
+
+    participants_statement = (
+        select(User)
+        .join(UserChallenge, User.id == UserChallenge.user_id)
+        .where(UserChallenge.challenge_id == challenge.id)
+        .order_by(desc(UserChallenge.joined_at))
+        .limit(5)
+    )
+
+    participants_res = await session.execute(participants_statement)
+    top_participants = participants_res.scalars().all()
+
+    base_data = ChallengeSchema.model_validate(challenge).model_dump()
+    return ChallengeWithParticipantsSummarySchema(
+        **base_data,
+        participants_count=total_participants,
+        preview_participants=[
+            ParticipantPreviewSchema.model_validate(u) for u in top_participants
+        ],
+    )

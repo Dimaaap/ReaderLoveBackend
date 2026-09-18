@@ -4,7 +4,17 @@ from datetime import date, datetime
 from typing import Optional
 from enum import Enum as PyEnum
 
-from sqlalchemy import String, Text, Integer, Date, DateTime, ForeignKey, Enum, func
+from sqlalchemy import (
+    String,
+    Text,
+    Integer,
+    Date,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Enum,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.models.base import Base
@@ -41,6 +51,10 @@ class Challenge(Base):
         default=ChallengeType.BOOK,
         server_default=ChallengeType.BOOK.value,
         nullable=False,
+    )
+
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1", nullable=True
     )
 
     start_date: Mapped[date] = mapped_column(Date, nullable=False)

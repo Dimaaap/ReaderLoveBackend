@@ -14,6 +14,7 @@ from entities.challenges.schema import (
     ChallengeWithDetailsSchema,
     ChallengeBookSchema,
     UserChallengeSchema,
+    ChallengeWithParticipantsSummarySchema,
 )
 
 from . import crud
@@ -238,3 +239,31 @@ async def leave_challenge(
     await redis_client.delete(f"challenges:id:{challenge_id}:details:True")
 
     return {"ok": True}
+
+
+@router.get(
+    "/{challenge_id}/summary",
+    response_model=ChallengeWithParticipantsSummarySchema,
+)
+async def get_challenge_summary(
+    challenge_id: int | str,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    cache_key = f"challenges:summary:{challenge_id}"
+
+    cached = await redis_client.get(cache_key)
+    if cached:
+        logger.info(f"Get challenge summary {challenge_id} from Redis cache")
+        return json.loads(cached)
+
+    summary = await crud.get_challenge_with_participants_summary(session, challenge_id)
+
+    if not summary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Challenge not found"
+        )
+
+    logger.info(f"Return challenge summary {challenge_id} from db")
+    await redis_client.set(cache_key, summary.model_dump_json(), ex=300)
+
+    return summary
