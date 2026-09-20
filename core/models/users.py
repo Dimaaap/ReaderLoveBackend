@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from .user_book_association import UserBookAssociation
     from .book_reviews import BookReview
     from .user_challenge import UserChallenge
+    from .challenge import Challenge
 
 
 class UserRole(str, Enum):
@@ -133,6 +134,15 @@ class User(Base):
 
     challenges: Mapped[list["UserChallenge"]] = relationship(
         "UserChallenge", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    won_challenges: Mapped[list["Challenge"]] = relationship(
+        "Challenge", secondary="challenge_winners", back_populates="winners"
+    )
+    super_won_challenges: Mapped[list["Challenge"]] = relationship(
+        "Challenge",
+        secondary="challenge_super_winners",
+        back_populates="super_winners",
     )
 
     def __str__(self) -> str:

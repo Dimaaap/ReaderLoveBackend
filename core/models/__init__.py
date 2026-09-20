@@ -26,6 +26,8 @@ __all__ = (
     "Challenge",
     "ChallengeBook",
     "UserChallenge",
+    "ChallengeWinner",
+    "ChallengeSuperWinner",
 )
 
 from .base import Base
@@ -54,3 +56,4 @@ from .session_reactions import SessionReaction
 from .challenge import Challenge
 from .challenge_book import ChallengeBook
 from .user_challenge import UserChallenge
+from .challenge_winners import ChallengeWinner, ChallengeSuperWinner

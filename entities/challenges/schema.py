@@ -34,8 +34,6 @@ class UserChallengeSchema(BaseModel):
     is_completed: bool = False
     completed_at: Optional[datetime] = None
 
-    user: UserShortSchema
-
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -45,7 +43,7 @@ class ChallengeBase(BaseModel):
     slug: str
     target_count: int = 1
     challenge_type: ChallengeType = ChallengeType.BOOK
-    active: bool = True
+    active: Optional[bool] = True
     start_date: date
     end_date: date
     badge_color: Optional[str] = "#3B82F6"
@@ -101,6 +99,9 @@ class ChallengeSchema(ChallengeBase):
     id: int
     created_at: datetime
 
+    winners: list[UserShortSchema] = []
+    super_winners: list[UserShortSchema] = []
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -123,3 +124,8 @@ class ChallengeWithDetailsSchema(ChallengeSchema):
     participants: list[UserChallengeSchema] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SetWinnersSchema(BaseModel):
+    winners_ids: list[str] = []
+    super_winners_ids: list[str] = []

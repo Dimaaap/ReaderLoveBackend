@@ -22,7 +22,11 @@ async def get_all_challenges(
     session: AsyncSession, limit: int | None = None
 ) -> list[ChallengeSchema]:
     logger.info(f"Try to get all challenges with params: limit={limit}")
-    statement = select(Challenge).order_by(desc(Challenge.created_at))
+    statement = (
+        select(Challenge)
+        .options(selectinload(Challenge.winners), selectinload(Challenge.super_winners))
+        .order_by(desc(Challenge.created_at))
+    )
 
     if limit is not None:
         statement = statement.limit(limit)
@@ -40,7 +44,14 @@ async def get_challenge_by_id(
         f"Try to get challenge with id {challenge_id} (with_details={with_details})"
     )
 
-    statement = select(Challenge).where(Challenge.id == challenge_id)
+    statement = (
+        select(Challenge)
+        .where(Challenge.id == challenge_id)
+        .options(
+            selectinload(Challenge.winners),
+            selectinload(Challenge.super_winners),
+        )
+    )
 
     if with_details:
         statement = statement.options(
@@ -70,7 +81,14 @@ async def get_challenge_by_slug(
         f"Try to get challenge with slug '{slug}' (with_details={with_details})"
     )
 
-    statement = select(Challenge).where(Challenge.slug == slug)
+    statement = (
+        select(Challenge)
+        .where(Challenge.slug == slug)
+        .options(
+            selectinload(Challenge.winners),
+            selectinload(Challenge.super_winners),
+        )
+    )
 
     if with_details:
         statement = statement.options(
@@ -206,6 +224,10 @@ async def get_challenges_by_book_id(
         select(Challenge)
         .join(ChallengeBook, Challenge.id == ChallengeBook.challenge_id)
         .where(ChallengeBook.book_id == book_id)
+        .options(
+            selectinload(Challenge.winners),
+            selectinload(Challenge.super_winners),
+        )
         .order_by(desc(Challenge.created_at))
     )
 
@@ -224,6 +246,10 @@ async def get_challenges_by_username(
         .join(UserChallenge, Challenge.id == UserChallenge.challenge_id)
         .join(User, UserChallenge.user_id == User.id)
         .where(User.username == username)
+        .options(
+            selectinload(Challenge.winners),
+            selectinload(Challenge.super_winners),
+        )
         .order_by(desc(Challenge.created_at))
     )
 
@@ -306,6 +332,9 @@ async def get_challenge_with_participants_summary(
             | (Challenge.slug == challenge_id_or_slug)
         )
 
+    statement = statement.options(
+        selectinload(Challenge.winners), selectinload(Challenge.super_winners)
+    )
     res = await session.execute(statement)
     challenge = res.scalar_one_or_none()
 
@@ -338,3 +367,51 @@ async def get_challenge_with_participants_summary(
             ParticipantPreviewSchema.model_validate(u) for u in top_participants
         ],
     )
+
+
+async def set_challenge_winners(
+    session: AsyncSession,
+    challenge_id: int,
+    winner_user_ids: list[str],
+    super_winner_user_ids: list[str],
+) -> ChallengeWithDetailsSchema:
+    logger.info(f"Setting winner for challenge { challenge_id }")
+
+    statement = (
+        select(Challenge)
+        .where(Challenge.id == challenge_id)
+        .options(
+            selectinload(Challenge.winners),
+            selectinload(Challenge.super_winners),
+            selectinload(Challenge.challenge_books)
+            .selectinload(ChallengeBook.book)
+            .options(selectinload(Book.genres), selectinload(Book.authors)),
+            selectinload(Challenge.participants).selectinload(UserChallenge.user),
+        )
+    )
+
+    result = await session.execute(statement)
+    challenge = result.scalar_one_or_none()
+
+    if not challenge:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Challenge not found"
+        )
+
+    winners_res = await session.execute(
+        select(User).where(User.id.in_(winner_user_ids))
+    )
+
+    super_winners_res = await session.execute(
+        select(User).where(User.id.in_(super_winner_user_ids))
+    )
+
+    challenge.winners = list(winners_res.scalars().all())
+    challenge.super_winners = list(super_winners_res.scalars().all())
+
+    challenge.active = False
+
+    await session.commit()
+    await session.refresh(challenge)
+
+    return ChallengeWithDetailsSchema.model_validate(challenge)

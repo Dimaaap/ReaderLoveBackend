@@ -15,6 +15,7 @@ from entities.challenges.schema import (
     ChallengeBookSchema,
     UserChallengeSchema,
     ChallengeWithParticipantsSummarySchema,
+    SetWinnersSchema,
 )
 
 from . import crud
@@ -267,3 +268,36 @@ async def get_challenge_summary(
     await redis_client.set(cache_key, summary.model_dump_json(), ex=300)
 
     return summary
+
+
+@router.post(
+    "/{challenge_id}/set-winners",
+    response_model=ChallengeWithDetailsSchema,
+    status_code=status.HTTP_200_OK,
+)
+async def set_challenge_winners(
+    challenge_id: int,
+    payload: SetWinnersSchema,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    logger.info(f"Received request to set winners for challenge_id={challenge_id}")
+
+    updated_challenge = await crud.set_challenge_winners(
+        session=session,
+        challenge_id=challenge_id,
+        winner_user_ids=payload.winners_ids,
+        super_winner_user_ids=payload.super_winners_ids,
+    )
+
+    await redis_client.delete(f"challenges:id:{challenge_id}:details:False")
+    await redis_client.delete(f"challenges:id:{challenge_id}:details:True")
+    await redis_client.delete(f"challenges:slug:{updated_challenge.slug}:details:False")
+    await redis_client.delete(f"challenges:slug:{updated_challenge.slug}:details:True")
+    await redis_client.delete(f"challenges:summary:{challenge_id}")
+    await redis_client.delete(f"challenges:summary:{updated_challenge.slug}")
+    await redis_client.delete("challenges:all")
+
+    for user_id in set(payload.winners_ids + payload.super_winners_ids):
+        await redis_client.delete(f"challenges:user:{user_id}")
+
+    return updated_challenge

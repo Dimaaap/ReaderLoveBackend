@@ -22,6 +22,7 @@ from core.models.base import Base
 if TYPE_CHECKING:
     from .user_challenge import UserChallenge
     from .challenge_book import ChallengeBook
+    from .users import User
 
 
 class ChallengeType(str, PyEnum):
@@ -79,6 +80,16 @@ class Challenge(Base):
 
     challenge_books: Mapped[list["ChallengeBook"]] = relationship(
         "ChallengeBook", back_populates="challenge", cascade="all, delete-orphan"
+    )
+
+    winners: Mapped[list["User"]] = relationship(
+        "User", secondary="challenge_winners", back_populates="won_challenges"
+    )
+
+    super_winners: Mapped[list["User"]] = relationship(
+        "User",
+        secondary="challenge_super_winners",
+        back_populates="super_won_challenges",
     )
 
     def __str__(self):
