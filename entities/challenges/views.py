@@ -45,6 +45,17 @@ async def get_all_challenges(
     return challenges
 
 
+@router.get("/summaries", response_model=list[ChallengeWithParticipantsSummarySchema])
+async def get_all_challenges_summaries(
+    active: Optional[bool] = Query(default=None, description="Filter by active status"),
+    limit: Optional[int] = Query(default=None, ge=1, le=100),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    summaries = await crud.get_all_challenges_with_summaries(session, active, limit)
+    logger.info(f"Return all challenge summaries from DB")
+    return summaries
+
+
 @router.get("/{challenge_id}")
 async def get_challenge_by_id(
     challenge_id: int,

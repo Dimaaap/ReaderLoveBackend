@@ -57,3 +57,5 @@ from .challenge import Challenge
 from .challenge_book import ChallengeBook
 from .user_challenge import UserChallenge
 from .challenge_winners import ChallengeWinner, ChallengeSuperWinner
+from .book_selection import BookSelection
+from .book_selection_association import BookSelectionAssociation

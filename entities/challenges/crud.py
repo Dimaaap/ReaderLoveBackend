@@ -415,3 +415,86 @@ async def set_challenge_winners(
     await session.refresh(challenge)
 
     return ChallengeWithDetailsSchema.model_validate(challenge)
+
+
+async def get_all_challenges_with_summaries(
+    session: AsyncSession, active: bool | None = None, limit: int | None = None
+) -> list[ChallengeWithParticipantsSummarySchema]:
+    logger.info(
+        f"Try to get all challenges with summaries (active={active}, limit={limit})"
+    )
+
+    statement = (
+        select(Challenge)
+        .options(selectinload(Challenge.winners), selectinload(Challenge.super_winners))
+        .order_by(desc(Challenge.created_at))
+    )
+
+    if active is not None:
+        statement = statement.where(Challenge.active == active)
+
+    if limit is not None:
+        statement = statement.limit(limit)
+
+    result = await session.execute(statement)
+    challenges = list(result.scalars().all())
+
+    if not challenges:
+        return []
+
+    challenge_ids = [challenge.id for challenge in challenges]
+
+    count_statement = (
+        select(
+            UserChallenge.challenge_id,
+            func.count(UserChallenge.user_id).label("total_count"),
+        )
+        .where(UserChallenge.challenge_id.in_(challenge_ids))
+        .group_by(UserChallenge.challenge_id)
+    )
+    count_res = await session.execute(count_statement)
+    counts_map = dict(count_res.all())
+
+    rn_subquery = (
+        select(
+            UserChallenge.user_id,
+            UserChallenge.challenge_id,
+            func.row_number()
+            .over(
+                partition_by=UserChallenge.challenge_id,
+                order_by=desc(UserChallenge.joined_at),
+            )
+            .label("rn"),
+        )
+        .where(UserChallenge.challenge_id.in_(challenge_ids))
+        .subquery()
+    )
+
+    top_participants_statement = (
+        select(User, rn_subquery.c.challenge_id)
+        .join(rn_subquery, User.id == rn_subquery.c.user_id)
+        .where(rn_subquery.c.rn <= 5)
+    )
+
+    top_res = await session.execute(top_participants_statement)
+
+    previews_map: dict[int, list[User]] = {cid: [] for cid in challenge_ids}
+
+    for user, cid in top_res.all():
+        previews_map[cid].append(user)
+
+    results = []
+    for challenge in challenges:
+        base_data = ChallengeSchema.model_validate(challenge).model_dump()
+        total_participants = counts_map.get(challenge.id, 0)
+        top_users = previews_map.get(challenge.id, [])
+
+        summary = ChallengeWithParticipantsSummarySchema(
+            **base_data,
+            participants_count=total_participants,
+            preview_participants=[
+                ParticipantPreviewSchema.model_validate(u) for u in top_users
+            ],
+        )
+        results.append(summary)
+    return results
