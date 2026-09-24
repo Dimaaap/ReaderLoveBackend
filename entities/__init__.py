@@ -16,6 +16,7 @@ from .book_reviews import router as book_reviews_router
 from .book_publishers import router as book_publishers_router
 from .session_reactions import router as reading_sessions_reactions_router
 from .challenges import router as challenges_router
+from .book_selections import router as book_selections_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(social_links_router)
@@ -34,3 +35,4 @@ router.include_router(book_reviews_router)
 router.include_router(book_publishers_router)
 router.include_router(reading_sessions_reactions_router)
 router.include_router(challenges_router)
+router.include_router(book_selections_router)

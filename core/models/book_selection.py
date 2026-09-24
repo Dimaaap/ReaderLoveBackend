@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 from datetime import datetime
 
-from sqlalchemy import Text, String, Boolean, DateTime
+from sqlalchemy import Text, String, Boolean, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -25,10 +25,13 @@ class BookSelection(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, server_default=func.now(), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime,
+        server_default=func.now(),
+        onupdate=datetime.utcnow,
+        nullable=True,
     )
 
     books: Mapped[list["Book"]] = relationship(

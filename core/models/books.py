@@ -26,6 +26,12 @@ class Book(Base):
     description: Mapped[Text] = mapped_column(Text, nullable=True)
     publish_date: Mapped[str] = mapped_column(String(100), nullable=True)
     language: Mapped[str] = mapped_column(String(50), nullable=True)
+
+    min_price: Mapped[int] = mapped_column(Integer, default=None, nullable=True)
+    megogo_book_link: Mapped[str] = mapped_column(
+        String(255), default="", server_default="", nullable=True
+    )
+
     rating: Mapped[float] = mapped_column(
         Float, default=0.0, server_default="0.0", nullable=False
     )

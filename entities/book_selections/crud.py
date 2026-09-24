@@ -9,6 +9,9 @@ from core.models import (
     BookSelectionAssociation,
     Book,
     UserBookAssociation,
+    User,
+    Review,
+    BookReview,
 )
 from entities.book_selections.schema import (
     BookSelectionSchema,
@@ -124,21 +127,47 @@ async def get_book_selection_by_id_or_slug(
         return BookSelectionSchema.model_validate(selection)
 
     user_statuses: dict[int, str] = {}
+    reviews_counts: dict[int, str] = {}
 
-    if user_id and selection.books:
+    if selection.books:
         book_ids = [b.id for b in selection.books]
-        status_statement = select(
-            UserBookAssociation.book_id, UserBookAssociation.status
-        ).where(
-            UserBookAssociation.user_id == user_id,
-            UserBookAssociation.book_id.in_(book_ids),
+
+        reviews_statement = (
+            select(BookReview.book_id, func.count(BookReview.id))
+            .where(BookReview.book_id.in_(book_ids))
+            .group_by(BookReview.book_id)
         )
-        status_res = await session.execute(status_statement)
-        user_statuses = dict(status_res.all())
+        reviews_res = await session.execute(reviews_statement)
+        reviews_counts = dict(reviews_res.all())
+
+        if user_id:
+            user_statement = select(User.id).where(
+                (User.id == user_id) | (User.username == user_id)
+            )
+            real_user_id = (await session.execute(user_statement)).scalar_one_or_none()
+
+            if real_user_id:
+                status_statement = select(
+                    UserBookAssociation.book_id, UserBookAssociation.status
+                ).where(
+                    UserBookAssociation.user_id == real_user_id,
+                    UserBookAssociation.book_id.in_(book_ids),
+                )
+
+                status_res = await session.execute(status_statement)
+                user_statuses = {
+                    b_id: (st.value if hasattr(st, "value") else st)
+                    for b_id, st in status_res.all()
+                }
 
     books_with_status = []
     for book in selection.books:
         book_schema_data = BookSchema.model_validate(book).model_dump()
+
+        book_schema_data["reviews_count"] = reviews_counts.get(
+            book.id, book.reviews_count or 0
+        )
+
         books_with_status.append(
             BookWithUserStatusSchema(
                 **book_schema_data,

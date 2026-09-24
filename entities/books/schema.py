@@ -19,6 +19,9 @@ class BookBase(BaseModel):
     publish_date: str | int | None = None
     language: str | None = None
 
+    min_price: int | None = None
+    megogo_book_link: str | None = None
+
     rating: float = Field(default=0.0, ge=0.0, le=5.0)
     reviews_count: int = Field(default=0, ge=0)
 
