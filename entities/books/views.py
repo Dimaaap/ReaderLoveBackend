@@ -145,15 +145,20 @@ async def delete_user_book_status(
     if not deleted:
         logger.error(
             f"Failed to delete reading book status in book "
-            f"{book_slug} for user {username} - book was not found in db"
+            f"{book_slug} for user {username} - book status or book was not found in db"
         )
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Book or status not found"
         )
 
     cache_key = f"book:{username}:{book_slug}"
     await redis_client.delete(cache_key)
     await redis_client.delete(f"books:{username}:active")
+    await redis_client.delete(f"books:{book_slug}")
+
+    async for key in redis_client.scan_iter(f"selection:*:{username}"):
+        await redis_client.delete(key)
+
     return {"status": "ok"}
 
 
@@ -274,6 +279,9 @@ async def update_or_add_book_status(
     await redis_client.delete(f"books:{username}:active")
     await redis_client.delete(f"book:{username}:{book_slug}")
     await redis_client.delete(f"books:{book_slug}")
+
+    async for key in redis_client.scan_iter(f"selection:*:{username}"):
+        await redis_client.delete(key)
 
     return {
         "ok": True,

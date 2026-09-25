@@ -199,17 +199,9 @@ async def get_book_by_slug_for_user_with_status(
     session: AsyncSession, book_slug: str, username: str
 ) -> Book | None:
     logger.info(f"Try to get book {book_slug} for user {username}")
-    statement = (
-        select(
-            Book,
-            UserBookAssociation.status,
-            UserBookAssociation.last_read_page,
-            User.id.label("user_id"),
-        )
-        .outerjoin(UserBookAssociation, (UserBookAssociation.book_id == Book.id))
-        .outerjoin(
-            User, (UserBookAssociation.user_id == User.id) & (User.username == username)
-        )
+
+    book_statement = (
+        select(Book)
         .where(Book.slug == book_slug)
         .options(
             selectinload(Book.authors),
@@ -218,17 +210,35 @@ async def get_book_by_slug_for_user_with_status(
         )
     )
 
-    result = await session.execute(statement)
-    row = result.first()
+    result_book = await session.execute(book_statement)
+    book = result_book.scalar_one_or_none()
 
-    if not row:
-        logger.error(f"Failed to get book {book_slug} for user {username}")
+    if not book:
+        logger.error(f"Failed to get book { book_slug } - Book not found")
         return None
 
-    book, user_status, last_read_page, user_id = row
-    book_detail = BookDetailSchema.model_validate(book)
+    user_statement = select(User.id).where(User.username == username)
+    result_user = await session.execute(user_statement)
+    user_id = result_user.scalar_one_or_none()
+    user_status = None
+    last_read_page = 0
+    sessions_count = 0
+    active_session_id = None
 
     if user_id:
+        associated_statement = select(
+            UserBookAssociation.status, UserBookAssociation.last_read_page
+        ).where(
+            UserBookAssociation.book_id == book.id,
+            UserBookAssociation.user_id == user_id,
+        )
+
+        associated_res = await session.execute(associated_statement)
+        associated_row = associated_res.first()
+
+        if associated_row:
+            user_status, last_read_page = associated_row
+
         stats_statement = select(
             func.count(ReadingSession.id).label("sessions_count"),
             func.max(
@@ -238,14 +248,13 @@ async def get_book_by_slug_for_user_with_status(
 
         stats_result = await session.execute(stats_statement)
         stats = stats_result.one()
+        sessions_count = stats.sessions_count
+        active_session_id = stats.active_session_id
 
-        book_detail.reading_sessions_count = stats.sessions_count
-        book_detail.active_session_id = stats.active_session_id
-        logger.info(
-            f"Uploaded sessions cound and active session id for book {book_slug} for user {username}: "
-            f"{stats.sessions_count}, {stats.active_session_id}"
-        )
+    book_detail = BookDetailSchema.model_validate(book)
 
+    book_detail.reading_sessions_count = sessions_count
+    book_detail.active_session_id = active_session_id
     book_detail.read_pages = last_read_page or 0
     book_detail.status = user_status
 
@@ -535,6 +544,7 @@ async def get_book_by_slug_for_user(
     session: AsyncSession, book_slug: str, username: str
 ) -> BookDetailSchema | None:
     logger.info(f"Try to get book {book_slug} for user {username}")
+
     book_statement = (
         select(Book)
         .where(Book.slug == book_slug)
@@ -545,6 +555,7 @@ async def get_book_by_slug_for_user(
             selectinload(Book.reviews).options(selectinload(BookReview.user)),
         )
     )
+
     book_result = await session.execute(book_statement)
     book = book_result.scalar_one_or_none()
 
@@ -555,7 +566,10 @@ async def get_book_by_slug_for_user(
         return None
 
     user_assoc_stmt = (
-        select(User.id, UserBookAssociation.last_read_page)
+        select(
+            User.id,
+            UserBookAssociation.last_read_page,
+        )
         .outerjoin(
             UserBookAssociation,
             (UserBookAssociation.user_id == User.id)
@@ -563,6 +577,7 @@ async def get_book_by_slug_for_user(
         )
         .where(User.username == username)
     )
+
     result = await session.execute(user_assoc_stmt)
     user_row = result.first()
 
@@ -576,9 +591,18 @@ async def get_book_by_slug_for_user(
         stats_statement = select(
             func.count(ReadingSession.id).label("sessions_count"),
             func.max(
-                case((ReadingSession.ended_at.is_(None), ReadingSession.id), else_=None)
+                case(
+                    (
+                        ReadingSession.ended_at.is_(None),
+                        ReadingSession.id,
+                    ),
+                    else_=None,
+                )
             ).label("active_session_id"),
-        ).where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
+        ).where(
+            ReadingSession.book_id == book.id,
+            ReadingSession.user_id == user_id,
+        )
 
         stats_result = await session.execute(stats_statement)
         stats = stats_result.one()
@@ -587,6 +611,16 @@ async def get_book_by_slug_for_user(
         active_session_id = stats.active_session_id
 
     book_detail = BookDetailSchema.model_validate(book)
+
+    book_detail.reviews_count = len(book.reviews)
+
+    if book.reviews:
+        book_detail.rating = round(
+            sum(review.rating for review in book.reviews) / len(book.reviews), 1
+        )
+    else:
+        book_detail.rating = 0
+
     book_detail.reading_sessions_count = sessions_count
     book_detail.read_pages = last_read_page or 0
     book_detail.active_session_id = active_session_id

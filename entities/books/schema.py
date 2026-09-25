@@ -81,6 +81,7 @@ class BookDetailSchema(BookSchema):
     publishers: PublisherSchema | None = None
     reviews: list[BookReviewSchema] = []
     reading_sessions_count: int = 0
+    rating: float | None = None
     read_pages: int = Field(default=0, alias="last_read_page")
     active_session_id: int | None = None
     status: BookReadStatus | None = None
