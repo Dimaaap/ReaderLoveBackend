@@ -740,7 +740,6 @@ async def create_book(session: AsyncSession, data: BookCreate) -> Book:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Видавництво '{data.publisher}' не знайдене",
             )
-
         book.publisher = publisher
 
     session.add(book)
