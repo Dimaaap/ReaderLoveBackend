@@ -1,5 +1,5 @@
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -119,6 +119,27 @@ async def update_user_settings(
     logger.info(f"Updated user settings for user {user.username}")
 
     return user.settings
+
+
+async def search_users(
+    session: AsyncSession, query: str, limit: int = 20
+) -> list[User]:
+
+    if not query or not query.strip():
+        return []
+
+    search_pattern = f"%{query.strip()}%"
+
+    statement = (
+        select(User)
+        .where(
+            or_(User.username.ilike(search_pattern), User.email.ilike(search_pattern))
+        )
+        .limit(limit)
+    )
+
+    result = await session.execute(statement)
+    return list(result.scalars().all())
 
 
 async def delete_avatar(session: AsyncSession, user: User) -> User:

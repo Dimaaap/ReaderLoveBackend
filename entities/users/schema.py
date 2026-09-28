@@ -114,6 +114,16 @@ class UserByUsernameSchema(BaseModel):
     friends: list = []
 
 
+class UserSearchResponse(BaseModel):
+    id: str | int
+    username: str
+    avatar: str | None = None
+    avatar_color: str | None = None
+    about_info: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class LoginSchema(BaseModel):
     email: EmailStr
     password: str

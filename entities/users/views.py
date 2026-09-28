@@ -29,6 +29,7 @@ from entities.users.schema import (
     UpdateUserPartial,
     ChangePasswordSchema,
     UpdateUserSettings,
+    UserSearchResponse,
 )
 from . import service, crud
 from .exceptions import GitHubException
@@ -509,3 +510,18 @@ async def github_callback(
 
     async with httpx.AsyncClient() as client:
         return await service.github_response(client, token_url, data, headers, session)
+
+
+@router.get("/users/search", response_model=list[UserSearchResponse])
+async def search_users(
+    q: str = Query("", description="Рядок для пошуку за ім'ям або username"),
+    limit: int = Query(20, ge=1, le=50, description="Ліміт кількості результатів"),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    logger.info(f"Searching users with query: {q}")
+
+    if not q.strip():
+        return []
+
+    users = await crud.search_users(session=session, query=q, limit=limit)
+    return users
