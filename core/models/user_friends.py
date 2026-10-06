@@ -1,6 +1,7 @@
 import os
+from datetime import datetime
 
-from sqlalchemy import String, ForeignKey
+from sqlalchemy import String, ForeignKey, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -19,4 +20,8 @@ class UserFriends(Base):
         String(int(os.getenv("NANOID_KEY_SIZE"))),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

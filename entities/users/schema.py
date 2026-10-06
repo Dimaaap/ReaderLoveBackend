@@ -120,6 +120,7 @@ class UserSearchResponse(BaseModel):
     avatar: str | None = None
     avatar_color: str | None = None
     about_info: str | None = None
+    is_following: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

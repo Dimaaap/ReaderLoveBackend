@@ -116,12 +116,20 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
-    friends: Mapped[list["User"]] = relationship(
+    following: Mapped[list["User"]] = relationship(
         "User",
         secondary="user_friends",
         primaryjoin="User.id == UserFriends.user_id",
         secondaryjoin="User.id == UserFriends.friend_id",
-        backref="friended_by",
+        back_populates="followers",
+    )
+
+    followers: Mapped[list["User"]] = relationship(
+        "User",
+        secondary="user_friends",
+        primaryjoin="User.id == UserFriends.friend_id",
+        secondaryjoin="User.id == UserFriends.user_id",
+        back_populates="following",
     )
 
     reviews: Mapped[list["BookReview"]] = relationship(

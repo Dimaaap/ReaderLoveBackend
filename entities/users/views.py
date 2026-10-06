@@ -514,6 +514,7 @@ async def github_callback(
 
 @router.get("/users/search", response_model=list[UserSearchResponse])
 async def search_users(
+    request: Request,
     q: str = Query("", description="Рядок для пошуку за ім'ям або username"),
     limit: int = Query(20, ge=1, le=50, description="Ліміт кількості результатів"),
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
@@ -523,5 +524,140 @@ async def search_users(
     if not q.strip():
         return []
 
-    users = await crud.search_users(session=session, query=q, limit=limit)
+    current_user_id = service.get_optional_current_user_id(request)
+
+    users = await crud.search_users(
+        session=session, query=q, current_user_id=current_user_id, limit=limit
+    )
     return users
+
+
+@router.post("/users/{target_user_id}/follow")
+async def toggle_follow_user(
+    target_user_id: str,
+    request: Request,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    access_token = request.cookies.get("access_token")
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+
+    if await service.is_token_blacklisted(access_token, redis_client):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
+        )
+
+    current_user_id = service.try_get_user_id_from_token(
+        access_token, expected_type="access"
+    )
+
+    if not current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
+
+    if current_user_id == target_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You can't follow yourself",
+        )
+
+    target_user = await crud.get_user_by_id(session, target_user_id)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    is_now_following = await crud.toggle_follow_user(
+        session, current_user_id, target_user_id
+    )
+
+    return {"message": "Follow status updated", "is_following": is_now_following}
+
+
+@router.get("/users/{username}/following", response_model=list[UserSearchResponse])
+async def get_user_following(
+    username: str,
+    request: Request,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    user = await crud.get_user_by_username(session, username)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    current_user_id = service.get_optional_current_user_id(request)
+    following = await crud.get_user_following(
+        session=session,
+        target_user_id=user.id,
+        current_user_id=current_user_id,
+        limit=limit,
+        offset=offset,
+    )
+    return following
+
+
+@router.get("/users/{username}/followers", response_model=list[UserSearchResponse])
+async def get_user_followers(
+    username: str,
+    request: Request,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+
+    user = await crud.get_user_by_username(session, username)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    current_user_id = service.get_optional_current_user_id(request)
+    followers = await crud.get_user_followers(
+        session, user.id, current_user_id, limit, offset
+    )
+
+    return followers
+
+
+@router.get("/users/following/reading-sessions")
+async def get_following_reading_sessions(
+    request: Request,
+    days: int = Query(
+        30, ge=1, le=365, description="Кількість днів для фільтрації сесій"
+    ),
+    limit: int = Query(50, ge=1, le=100, description="Ліміт результатів"),
+    offset: int = Query(0, ge=0, description="Зсув для пагінації"),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    access_token = request.cookies.get("access_token")
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+
+    if await service.is_token_blacklisted(access_token, redis_client):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
+        )
+
+    current_user_id = service.try_get_user_id_from_token(
+        access_token, expected_type="access"
+    )
+
+    if not current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid tokeb"
+        )
+
+    sessions = await crud.get_following_reading_sessions(
+        session, current_user_id, days, limit, offset
+    )
+
+    return sessions

@@ -10,7 +10,7 @@ from jwt import ExpiredSignatureError, InvalidTokenError
 from pwdlib import PasswordHash
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import HTTPException, status, Response, UploadFile
+from fastapi import HTTPException, status, Response, UploadFile, Request
 from fastapi_mail import FastMail, MessageSchema, MessageType
 from jose import jwt, JWTError
 from starlette.responses import RedirectResponse
@@ -552,3 +552,11 @@ async def change_password(
 
     await session.commit()
     await session.refresh(user)
+
+
+def get_optional_current_user_id(request: Request) -> str | None:
+    access_token = request.cookies.get("access_token")
+    if access_token:
+        return try_get_user_id_from_token(access_token, expected_type="access")
+
+    return None
