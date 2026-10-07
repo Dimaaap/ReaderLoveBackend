@@ -566,10 +566,7 @@ async def get_book_by_slug_for_user(
         return None
 
     user_assoc_stmt = (
-        select(
-            User.id,
-            UserBookAssociation.last_read_page,
-        )
+        select(User.id, UserBookAssociation.last_read_page, UserBookAssociation.status)
         .outerjoin(
             UserBookAssociation,
             (UserBookAssociation.user_id == User.id)
@@ -584,9 +581,14 @@ async def get_book_by_slug_for_user(
     sessions_count = 0
     active_session_id = None
     last_read_page = 0
+    read_status = None
 
     if user_row and user_row.id:
-        user_id, last_read_page = user_row.id, user_row.last_read_page
+        user_id, last_read_page, read_status = (
+            user_row.id,
+            user_row.last_read_page,
+            user_row.status,
+        )
 
         stats_statement = select(
             func.count(ReadingSession.id).label("sessions_count"),
@@ -624,6 +626,7 @@ async def get_book_by_slug_for_user(
     book_detail.reading_sessions_count = sessions_count
     book_detail.read_pages = last_read_page or 0
     book_detail.active_session_id = active_session_id
+    book_detail.status = read_status
 
     return book_detail
 

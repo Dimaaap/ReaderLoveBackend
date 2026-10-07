@@ -216,9 +216,7 @@ async def get_following_reading_sessions(
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
-    time_threshold = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
-        days=days
-    )
+    time_threshold = datetime.now(timezone.utc) - timedelta(days=days)
 
     statement = (
         select(
@@ -226,10 +224,12 @@ async def get_following_reading_sessions(
         )
         .join(User, ReadingSession.user_id == User.id)
         .join(UserFriends, UserFriends.friend_id == User.id)
-        .options(joinedload(ReadingSession.book))
+        .options(
+            joinedload(ReadingSession.book), selectinload(ReadingSession.reactions)
+        )
         .outerjoin(
             UserBookAssociation,
-            (UserBookAssociation.user_id == ReadingSession.user_id)
+            (UserBookAssociation.user_id == user_id)
             & (UserBookAssociation.book_id == ReadingSession.book_id),
         )
         .where(
@@ -244,6 +244,16 @@ async def get_following_reading_sessions(
 
     feed_items = []
     for reading_session, user, user_book_status in result.all():
+        reactions_count: dict[str, int] = {}
+        user_reactions: list[str] = []
+
+        db_reactions = getattr(reading_session, "reactions", []) or []
+
+        for reaction in db_reactions:
+            reactions_count[reaction.emoji] = reactions_count.get(reaction.emoji, 0) + 1
+            if user_id and str(reaction.user_id) == str(user_id):
+                user_reactions.append(reaction.emoji)
+
         item = {
             "id": reading_session.id,
             "start_page": getattr(reading_session, "start_page", None),
@@ -256,6 +266,7 @@ async def get_following_reading_sessions(
                     "id": reading_session.book.id,
                     "title": reading_session.book.title,
                     "slug": reading_session.book.slug,
+                    "megogo_book_link": reading_session.book.megogo_book_link,
                     "description": reading_session.book.description,
                     "image_link": reading_session.book.image_link,
                     "user_status": user_book_status.value if user_book_status else None,
@@ -269,6 +280,8 @@ async def get_following_reading_sessions(
                 "avatar": user.avatar,
                 "avatar_color": user.avatar_color,
             },
+            "reactions": reactions_count,
+            "user_reactions": user_reactions,
         }
 
         feed_items.append(item)
