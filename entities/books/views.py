@@ -29,6 +29,7 @@ router = APIRouter(tags=["Books"])
 MEDIA_DIR = Path("media/books")
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 MAX_COVER_SIZE = 5 * 1024 * 1024
+SIMILAR_BOOKS_REDIS_TTL = 604_800
 
 
 @router.get("/")
@@ -215,6 +216,45 @@ async def get_book_with_sessions(
         )
 
     return book_data
+
+
+@router.get("/{slug}/similar", response_model=list[BookSchema])
+async def get_similar_books_view(
+    slug: str,
+    limit: int = 6,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    cache_key = f"similar_books:{slug}:{limit}"
+
+    try:
+        cached_data = await redis_client.get(cache_key)
+        if cached_data:
+            return json.loads(cached_data)
+    except Exception as e:
+        logger.error(f"[Redis Cache Read Error]: {e}")
+    book = await crud.get_book_by_slug(session, slug)
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Book with slug {slug} was not found",
+        )
+
+    similar_books = await crud.get_similar_books(session, book.id, limit)
+
+    validated_books = [
+        BookSchema.model_validate(book).model_dump(mode="json")
+        for book in similar_books
+    ]
+
+    try:
+        await redis_client.set(
+            name=cache_key,
+            value=json.dumps(validated_books, ensure_ascii=False),
+            ex=SIMILAR_BOOKS_REDIS_TTL,
+        )
+    except Exception as e:
+        logger.error(f"[Redis Write Error]: {e}")
+    return validated_books
 
 
 @router.post("/", response_model=BookSchema, status_code=status.HTTP_201_CREATED)

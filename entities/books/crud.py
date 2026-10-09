@@ -17,6 +17,7 @@ from core.models import (
     ReadingSession,
     BookReview,
     BookPublisher,
+    GenreBookAssociation,
 )
 from core.models.user_book_association import BookReadStatus
 from entities.books.utils import calculate_streak
@@ -691,6 +692,66 @@ async def get_current_main_reading_book(
         )
 
     return None
+
+
+async def get_similar_books(
+    session: AsyncSession, book_id: int, limit: int = 6
+) -> list[Book]:
+    statement = (
+        select(Book)
+        .where(Book.id == book_id)
+        .options(selectinload(Book.genres), selectinload(Book.authors))
+    )
+
+    result = await session.execute(statement)
+    current_book = result.scalar_one_or_none()
+
+    if not current_book:
+        return []
+
+    genre_ids = [genre.id for genre in current_book.genres]
+    author_ids = [author.id for author in current_book.authors]
+
+    if not genre_ids and not author_ids:
+        fallback_statement = (
+            select(Book)
+            .where(Book.id != book_id)
+            .options(
+                selectinload(Book.authors),
+                selectinload(Book.genres),
+                selectinload(Book.reviews),
+            )
+            .limit(limit)
+        )
+        result = await session.execute(fallback_statement)
+        books = list(result.scalars().all())
+    else:
+        genre_match_score = func.count(BookGenres.id).label("genre_score")
+        similar_books_statement = (
+            select(Book)
+            .join(Book.genres)
+            .where(Book.id != book_id, BookGenres.id.in_(genre_ids))
+            .group_by(Book.id)
+            .order_by(desc(genre_match_score), desc(Book.rating))
+            .options(
+                selectinload(Book.authors),
+                selectinload(Book.genres),
+                selectinload(Book.reviews),
+            )
+            .limit(limit)
+        )
+        result = await session.execute(similar_books_statement)
+        books = list(result.scalars().all())
+
+    for book in books:
+        book.reviews_count = len(book.reviews)
+        if book.reviews:
+            book.rating = round(
+                sum(review.rating for review in book.reviews) / len(book.reviews), 1
+            )
+        else:
+            book.rating = 0.0
+    return books
 
 
 async def create_book(session: AsyncSession, data: BookCreate) -> Book:

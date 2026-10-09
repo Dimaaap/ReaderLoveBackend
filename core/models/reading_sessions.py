@@ -40,6 +40,14 @@ class ReadingSession(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    paused_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    total_paused_duration: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+
     start_page: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     end_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -51,6 +59,21 @@ class ReadingSession(Base):
     reactions: Mapped[list["SessionReaction"]] = relationship(
         "SessionReaction", back_populates="session", cascade="all, delete-orphan"
     )
+
+    @property
+    def is_paused(self) -> bool:
+        return self.paused_at is not None
+
+    @property
+    def net_duration_seconds(self) -> int:
+        end_time = self.ended_at or datetime.now(self.started_at.tzinfo)
+        total_time = int((end_time - self.started_at).total_seconds())
+
+        current_pause = 0
+        if self.paused_at:
+            current_pause = int((end_time - self.paused_at).total_seconds())
+
+        return max(0, total_time - self.total_paused_duration - current_pause)
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(user_id={self.user_id}, book_id={self.book_id}, start_at={self.started_at})"
