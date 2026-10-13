@@ -32,6 +32,7 @@ from entities.books.schema import (
     BookSchemaWithSessions,
     MiniReadingSessionSchema,
     UserBookStatusUpdate,
+    ActiveReadingSessionSchema,
 )
 
 
@@ -343,11 +344,29 @@ async def get_book_by_slug_for_user_with_sessions_stats(
     )
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
+    active_session_statement = (
+        select(ReadingSession)
+        .where(
+            ReadingSession.book_id == book.id,
+            ReadingSession.user_id == user_id,
+            ReadingSession.ended_at.is_(None),
+        )
+        .limit(1)
+    )
+
+    active_session_result = await session.execute(active_session_statement)
+    active_session = active_session_result.scalar_one_or_none()
+
+    active_reading_session_data = None
+    if active_session:
+        active_reading_session_data = ActiveReadingSessionSchema(
+            id=active_session.id,
+            started_at=active_session.started_at,
+            net_duration_seconds=active_session.net_duration_seconds,
+            is_paused=active_session.is_paused,
+        )
     stats_statement = select(
         func.count(ReadingSession.id).label("sessions_count"),
-        func.max(
-            case((ReadingSession.ended_at.is_(None), ReadingSession.id), else_=None)
-        ).label("active_session_id"),
         func.coalesce(
             func.sum(
                 case(
@@ -395,7 +414,8 @@ async def get_book_by_slug_for_user_with_sessions_stats(
             "reading_sessions_count": stats.sessions_count,
             "read_pages": read_pages,
             "weekly_read_pages": stats.weekly_pages,
-            "active_session_id": stats.active_session_id,
+            "active_session_id": active_session.id if active_session else None,
+            "active_session": active_reading_session_data,
             "recent_sessions": recent_sessions,
             "current_streak": current_streak,
         }

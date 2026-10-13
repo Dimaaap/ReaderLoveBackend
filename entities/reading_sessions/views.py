@@ -312,3 +312,47 @@ async def toggle_session_reaction(
         emoji=reaction_data.emoji,
         session_id=session_id,
     )
+
+
+@router.post("/{session_id}/pause", response_model=ReadingSessionSchema)
+async def pause_reading_session(
+    session_id: int,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    db_session = await crud.get_reading_session_by_id(session, session_id)
+
+    if not db_session:
+        logger.error(f"Failed to pause reading session with id {session_id}: not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Reading Session Not Found"
+        )
+
+    updated_session = await crud.pause_reading_session(session, db_session)
+
+    await redis_client.delete(f"reading_sessions:{session_id}")
+    await redis_client.delete("reading_sessions:all")
+    await redis_client.delete("reading_sessions:active")
+
+    logger.info(f"Reading session {session_id} successfully paused")
+    return crud.map_session_to_schema(updated_session)
+
+
+@router.post("/{session_id}/resume", response_model=ReadingSessionSchema)
+async def resume_reading_session(
+    session_id: int,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    db_session = await crud.get_reading_session_by_id(session, session_id)
+
+    if not db_session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Reading Session Not Found"
+        )
+
+    updated_session = await crud.resume_reading_session(session, db_session)
+
+    await redis_client.delete(f"reading_sessions:{session_id}")
+    await redis_client.delete("reading_sessions:all")
+    await redis_client.delete("reading_sessions:active")
+
+    return crud.map_session_to_schema(updated_session)

@@ -55,6 +55,10 @@ def map_session_to_schema(
         comment=db_session.comment,
         started_at=db_session.started_at,
         ended_at=db_session.ended_at,
+        paused_at=db_session.paused_at,
+        total_paused_duration=db_session.total_paused_duration,
+        is_paused=db_session.is_paused,
+        net_duration_seconds=db_session.net_duration_seconds,
         user=user_schema,
         book=book_schema,
         reactions=reactions_count,
@@ -244,6 +248,47 @@ async def create_reading_session(
     return full_session_result.scalar_one()
 
 
+async def pause_reading_session(
+    session: AsyncSession, reading_session: ReadingSession
+) -> ReadingSession:
+    if reading_session.paused_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reading session is already paused",
+        )
+    if reading_session.ended_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot pause an already ended reading session",
+        )
+    reading_session.paused_at = datetime.now(reading_session.started_at.tzinfo)
+
+    await session.commit()
+    await session.refresh(reading_session)
+    return reading_session
+
+
+async def resume_reading_session(
+    session: AsyncSession, reading_session: ReadingSession
+) -> ReadingSession:
+
+    if reading_session.paused_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reading session is not paused",
+        )
+
+    now = datetime.now(reading_session.started_at.tzinfo)
+    pause_duration = int((now - reading_session.paused_at).total_seconds())
+
+    reading_session.total_paused_duration += max(0, pause_duration)
+    reading_session.paused_at = None
+
+    await session.commit()
+    await session.refresh(reading_session)
+    return reading_session
+
+
 async def update_reading_session(
     session: AsyncSession,
     reading_session: ReadingSession,
@@ -252,6 +297,16 @@ async def update_reading_session(
 ) -> ReadingSession:
     logger.info(f"Try to update reading session with data: {reading_session_update}")
     update_data = reading_session_update.model_dump(exclude_unset=partial)
+
+    if (
+        update_data.get("ended_at") is not None
+        and reading_session.paused_at is not None
+    ):
+        pause_duration = int(
+            (update_data["ended_at"] - reading_session.paused_at).total_seconds()
+        )
+        reading_session.total_paused_duration += max(0, pause_duration)
+        reading_session.paused_at = None
 
     for key, value in update_data.items():
         setattr(reading_session, key, value)

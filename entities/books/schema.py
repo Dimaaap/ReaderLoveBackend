@@ -77,13 +77,22 @@ class PublisherSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ActiveReadingSessionSchema(BaseModel):
+    id: int
+    started_at: datetime
+    net_duration_seconds: int = 0
+    is_paused: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class BookDetailSchema(BookSchema):
     publishers: PublisherSchema | None = None
     reviews: list[BookReviewSchema] = []
     reading_sessions_count: int = 0
     rating: float | None = None
     read_pages: int = Field(default=0, alias="last_read_page")
-    active_session_id: int | None = None
+    active_session: ActiveReadingSessionSchema | None = None
     status: BookReadStatus | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

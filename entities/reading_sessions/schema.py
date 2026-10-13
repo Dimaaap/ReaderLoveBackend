@@ -66,6 +66,8 @@ class ReadingSessionUpdate(BaseModel):
     comment: str | None = None
     is_tracked: bool | None = None
     ended_at: datetime | None = None
+    paused_at: datetime | None = None
+    total_paused_duration: int | None = None
 
 
 class ReadingSessionUpdatePartial(ReadingSessionUpdate): ...
@@ -76,6 +78,10 @@ class ReadingSessionSchema(ReadingSessionBase):
     user_id: str
     started_at: datetime | None = None
     ended_at: datetime | None = None
+    paused_at: datetime | None = None
+    total_paused_duration: int | None = None
+    is_paused: bool = False
+    net_duration_seconds: int = 0
 
     user: UserInSessionSchema
     book: BookInSessionSchema
