@@ -22,9 +22,7 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await redis_client.ping()
-
     yield
-
     await redis_client.close()
 
 

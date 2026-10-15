@@ -1,4 +1,4 @@
-from datetime import timedelta, datetime, timezone
+from datetime import timedelta, datetime, timezone, date
 import os
 import aiofiles
 from uuid import uuid4
@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from jwt import ExpiredSignatureError, InvalidTokenError
 from pwdlib import PasswordHash
+from sqlalchemy import select, and_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status, Response, UploadFile, Request
@@ -20,7 +21,7 @@ from custom_errors.user_existing_error import UserExistingError
 from utils.otp import generate_random_otp
 from . import crud
 from .schema import SignupRequest, CreateUser, GoogleSignupRequest
-from core.models import User
+from core.models import User, UserSettings, ReadingSession, db_helper
 from .settings import settings
 from .mail import mail_config
 
@@ -145,6 +146,19 @@ async def send_reset_password_email(email: str, username: str, otp: str):
 
     fm = FastMail(mail_config)
     await fm.send_message(message, template_name="forgot-password.html")
+
+
+async def send_reading_reminder_email(email: str, username: str):
+    message = MessageSchema(
+        subject="Час почитати улюблену книгу! 📚",
+        recipients=[email],
+        template_body={"username": username},
+        subtype=MessageType.html,
+    )
+
+    fm = FastMail(mail_config)
+    await fm.send_message(message, template_name="reading-reminder.html")
+    logger.info(f"Reading reminder email was sent to {email}")
 
 
 async def update_user_password(session: AsyncSession, email: str, new_password: str):
@@ -560,3 +574,36 @@ def get_optional_current_user_id(request: Request) -> str | None:
         return try_get_user_id_from_token(access_token, expected_type="access")
 
     return None
+
+
+async def send_daily_reading_reminders():
+    async with db_helper.session_factory() as session:
+        today = date.today()
+
+        statement = (
+            select(User)
+            .join(UserSettings, User.id == UserSettings.user_id)
+            .where(UserSettings.reading_reminders == True)
+        )
+
+        result = await session.execute(statement)
+        users = result.scalars().all()
+
+        for user in users:
+            session_statement = select(ReadingSession).where(
+                and_(
+                    ReadingSession.user_id == user.id,
+                    func.date(ReadingSession.started_at) == today,
+                )
+            )
+
+            session_res = await session.execute(session_statement)
+            today_sessions = session_res.scalars().all()
+
+            if not today_sessions and user.email:
+                try:
+                    await send_reading_reminder_email(str(user.email), user.username)
+                except Exception as e:
+                    logger.error(
+                        f"Failed to send reading reminder to {user.email}: {e}"
+                    )

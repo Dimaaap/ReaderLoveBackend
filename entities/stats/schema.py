@@ -17,6 +17,12 @@ class ChartDataPoint(BaseModel):
     pages: int
 
 
+class ChartItem(BaseModel):
+    name: str
+    value: float | int
+    color: str
+
+
 class UserStatisticsResponse(BaseModel):
     period: Literal["7d", "1m", "3m", "1y", "all"]
     pages_read: StatsMetric
@@ -24,5 +30,8 @@ class UserStatisticsResponse(BaseModel):
     pages_per_day: StatsMetric
     reading_time: ReadingTimeMetric
     chart_data: List[ChartDataPoint]
+
+    reading_times: list[ChartItem] = []
+    top_genres: list[ChartItem] = []
 
     model_config = ConfigDict(from_attributes=True)

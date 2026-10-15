@@ -334,6 +334,42 @@ async def change_password(
     return {"message": "Success"}
 
 
+@router.get("/me/settings", response_model=UserSettingsSchema)
+async def get_user_settings(
+    request: Request,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    access_token = request.cookies.get("access_token")
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
+    if await service.is_token_blacklisted(access_token, redis_client):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
+        )
+
+    user_id = service.try_get_user_id_from_token(access_token, expected_type="access")
+
+    user = await crud.get_user_by_id(session, user_id)
+
+    if not user:
+        logger.error(f"Failed to get user {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    if not user.settings:
+        raise HTTPException(
+            status_code=status.HTTP_NOT_FOUND, detail="Settings not found"
+        )
+
+    return UserSettingsSchema.model_validate(user.settings)
+
+
 @router.patch("/me/settings", response_model=UserSettingsSchema)
 async def update_user_settings(
     settings_update: UpdateUserSettings,

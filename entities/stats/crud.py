@@ -1,7 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func, case, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from core.models import ReadingSession, UserBookAssociation, User
+from core.models import (
+    ReadingSession,
+    UserBookAssociation,
+    User,
+    BookGenres,
+    Book,
+    GenreBookAssociation,
+)
 from core.models.user_book_association import BookReadStatus
 
 
@@ -135,6 +142,74 @@ async def get_user_reading_statistics(
     )
     pages_per_day_current = round(pages_current / effective_days, 1)
 
+    sessions_time_stmt = select(ReadingSession.started_at).where(
+        ReadingSession.user_id == user_id, ReadingSession.started_at >= current_start
+    )
+    sessions_res = await session.execute(sessions_time_stmt)
+    all_sessions = sessions_res.scalars().all()
+
+    time_slots = {"Ранок": 0, "День": 0, "Вечір": 0, "Ніч": 0}
+    for started_at in all_sessions:
+        hour = started_at.hour
+        if 6 <= hour < 12:
+            time_slots["Ранок"] += 1
+        elif 12 <= hour < 18:
+            time_slots["День"] += 1
+        elif 18 <= hour < 24:
+            time_slots["Вечір"] += 1
+        else:
+            time_slots["Ніч"] += 1
+
+    total_sessions_count = sum(time_slots.values()) or 1
+    reading_times_data = [
+        {
+            "name": "Ранок",
+            "value": round((time_slots["Ранок"] / total_sessions_count) * 100),
+            "color": "#ffb076",
+        },
+        {
+            "name": "День",
+            "value": round((time_slots["День"] / total_sessions_count) * 100),
+            "color": "#7b7bf7",
+        },
+        {
+            "name": "Вечір",
+            "value": round((time_slots["Вечір"] / total_sessions_count) * 100),
+            "color": "#b388ff",
+        },
+        {
+            "name": "Ніч",
+            "value": round((time_slots["Ніч"] / total_sessions_count) * 100),
+            "color": "#565666",
+        },
+    ]
+
+    genres_stmt = (
+        select(BookGenres.title, func.count(Book.id).label("count"))
+        .join(GenreBookAssociation, BookGenres.id == GenreBookAssociation.genre_id)
+        .join(Book, Book.id == GenreBookAssociation.book_id)
+        .join(UserBookAssociation, Book.id == UserBookAssociation.book_id)
+        .where(UserBookAssociation.user_id == user_id)
+        .group_by(BookGenres.title)
+        .order_by(desc("count"))
+        .limit(5)
+    )
+
+    genres_res = await session.execute(genres_stmt)
+    genres_rows = genres_res.all()
+
+    genre_colors = ["#ff758f", "#9d4edd", "#7b2cbf", "#3c096c", "#6c5a81"]
+    total_genres_count = sum(row.count for row in genres_rows) or 1
+
+    top_genres_data = [
+        {
+            "name": row.title,
+            "value": round((row.count / total_genres_count) * 100),
+            "color": genre_colors[i % len(genre_colors)],
+        }
+        for i, row in enumerate(genres_rows)
+    ]
+
     return {
         "period": period,
         "pages_read": {
@@ -154,4 +229,6 @@ async def get_user_reading_statistics(
             "change_percentage": time_change,
         },
         "chart_data": chart_data,
+        "reading_times": reading_times_data,
+        "top_genres": top_genres_data,
     }
