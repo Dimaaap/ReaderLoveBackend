@@ -16,9 +16,13 @@ celery_app.conf.update(
     timezone="Europe/Kyiv",
     enable_utc=True,
     beat_schedule={
-        "send-reading-reminders-every-day-at-20-00": {
+        "send-reading-reminders-every-day": {
             "task": "users.send_daily_reminders_task",
-            "schedule": crontab(hour=13, minute=00)
-        }
+            "schedule": crontab(hour=21, minute=33),
+        },
+        "send-weekly-book-recommendations": {
+            "task": "users.send_personalized_recommendations_task",
+            "schedule": crontab(hour=21, minute=34, day_of_week="friday"),
+        },
     }
 )

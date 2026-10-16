@@ -1,3 +1,5 @@
+import asyncio
+import random
 from datetime import timedelta, datetime, timezone, date
 import os
 import aiofiles
@@ -21,7 +23,7 @@ from custom_errors.user_existing_error import UserExistingError
 from utils.otp import generate_random_otp
 from . import crud
 from .schema import SignupRequest, CreateUser, GoogleSignupRequest
-from core.models import User, UserSettings, ReadingSession, db_helper
+from core.models import User, UserSettings, Book, ReadingSession, db_helper
 from .settings import settings
 from .mail import mail_config
 
@@ -607,3 +609,120 @@ async def send_daily_reading_reminders():
                     logger.error(
                         f"Failed to send reading reminder to {user.email}: {e}"
                     )
+
+
+async def send_bulk_book_promotions(
+    subject: str, message_content: str, batch_size: int = 50
+):
+    async with db_helper.session_factory() as session:
+        statement = (
+            select(User)
+            .join(UserSettings, User.id == UserSettings.user_id)
+            .where(UserSettings.email_notifications == True)
+        )
+
+        result = await session.execute(statement)
+        users = result.scalars().all()
+
+        logger.info(f"Starting bulk promotions email to {len(users)} users.")
+
+        fm = FastMail(mail_config)
+        sent_count = 0
+        failed_count = 0
+
+        for i in range(0, len(users), batch_size):
+            batch = users[i : i + batch_size]
+
+            for user in batch:
+                if not user.email:
+                    continue
+
+                try:
+                    message = MessageSchema(
+                        subject=subject,
+                        recipients=[user.email],
+                        template_body={
+                            "username": user.username,
+                            "content": message_content,
+                        },
+                        subtype=MessageType.html,
+                    )
+
+                    await fm.send_message(message, template_name="book-promotion.html")
+                    sent_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    logger.error(f"Failed to send promotion email {user.email}: {e}")
+            await asyncio.sleep(1)
+
+        logger.info(
+            f"Bulk promotion finished. Send: {sent_count}, Failed: {failed_count}"
+        )
+
+
+async def send_personalized_book_recommendations():
+    async with db_helper.session_factory() as session:
+        statement = (
+            select(User)
+            .join(UserSettings, User.id == UserSettings.user_id)
+            .where(
+                UserSettings.email_notifications == True,
+                UserSettings.book_recommendations == True,
+            )
+        )
+
+        result = await session.execute(statement)
+        users = result.scalars().all()
+
+        if not users:
+            logger.info("No users found for personalized book recommendations.")
+            return
+
+        book_result = await session.execute(select(Book))
+        books = book_result.scalars().all()
+
+        if not books:
+            logger.info("No books available in database for recommendations")
+            return
+
+        logger.info(f"tarting personalized recommendations to {len(users)} users.")
+
+        fm = FastMail(mail_config)
+        sent_count = 0
+        failed_count = 0
+
+        for user in users:
+            if not user.email:
+                continue
+
+            recommended_book = random.choice(books)
+
+            try:
+                message = MessageSchema(
+                    subject="📚 Книга тижня спеціально для вас у ExLove!",
+                    recipients=[user.email],
+                    template_body={
+                        "username": user.username,
+                        "book_title": recommended_book.title,
+                        "book_author": getattr(
+                            recommended_book, "author", "Невідомий автор"
+                        ),
+                        "book_description": getattr(
+                            recommended_book,
+                            "description",
+                            "Ця книга точно варта вашої уваги",
+                        ),
+                    },
+                    subtype=MessageType.html,
+                )
+                await fm.send_message(message, template_name="book-recommendation.html")
+                sent_count += 1
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"Failed to send recommendation to {user.email}: {e}")
+
+            await asyncio.sleep(1)
+
+        logger.info(
+            f"Recommendations finished. Sent: {sent_count}, Failed: {failed_count}"
+        )
