@@ -3,7 +3,7 @@ from fastapi import HTTPException, status
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from core.models import BookNotes, User
 from entities.book_notes.schema import (
@@ -178,3 +178,51 @@ async def delete_book_note(session: AsyncSession, note_id: int) -> (bool, BookNo
     await session.delete(book_note)
     await session.commit()
     return True, deleted_note
+
+
+async def get_user_notes_for_export(
+    session: AsyncSession,
+    username: str,
+    category_filter: str = "all",
+    only_important: bool = False,
+) -> list[dict]:
+    statement = (
+        select(BookNotes)
+        .join(BookNotes.user)
+        .where(User.username == username)
+        .options(selectinload(BookNotes.book), selectinload(BookNotes.user))
+        .order_by(BookNotes.created_at.desc())
+    )
+
+    if category_filter != "all":
+        statement = statement.where(BookNotes.note_category == category_filter)
+
+    if only_important:
+        statement = statement.where(BookNotes.is_important == True)
+
+    result = await session.execute(statement)
+    notes = result.scalars().all()
+
+    export_data = []
+
+    for note in notes:
+        book_title = note.book.title if note.book else "Невідома книга"
+
+        item = {
+            "book_title": book_title,
+            "note_text": note.note_text,
+            "category": (
+                note.note_category.value
+                if hasattr(note.note_category, "value")
+                else str(note.note_category)
+            ),
+            "is_important": "Так" if note.is_important else "Ні",
+            "book_page": note.book_page if note.book_page is not None else "-",
+            "created_at": (
+                note.created_at.strftime("%Y-%m-%d %H:%M") if note.created_at else ""
+            ),
+        }
+
+        export_data.append(item)
+
+    return export_data

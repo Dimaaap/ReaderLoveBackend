@@ -1,8 +1,11 @@
 import json
+import io
 
 from loguru import logger
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from core.redis_config import redis_client
 from core.models import db_helper
@@ -10,9 +13,10 @@ from entities.book_notes.schema import (
     BookNotesCreate,
     BookNotesSchema,
     BookNotesUpdatePartial,
+    ExportBookNotesOptions,
 )
 
-from . import crud
+from . import crud, utils
 
 router = APIRouter(tags=["Book Notes"])
 
@@ -203,3 +207,43 @@ async def delete_book_note_by_id(
                 )
         except Exception:
             pass
+
+
+@router.post("/{username}/export-notes")
+async def export_user_notes(
+    username: str,
+    options: ExportBookNotesOptions,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    data = await crud.get_user_notes_for_export(
+        session, username, options.category_filter, options.only_important
+    )
+
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Не знайдено нотаток за обраними категоріями для експорту",
+        )
+
+    file_bytes = None
+    media_types = None
+    filename = None
+
+    if options.format == "csv":
+        file_bytes = utils.generate_notes_csv_export(data)
+        media_types = "text/csv"
+        filename = f"{username}_notes.csv"
+    elif options.format == "json":
+        file_bytes = utils.generate_notes_json_export(data)
+        media_types = "application/json"
+        filename = f"{username}_notes.json"
+    elif options.format == "pdf":
+        file_bytes = utils.generate_noted_pdf_export(data)
+        media_types = "application/pdf"
+        filename = f"{username}_notes.pdf"
+
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
+        media_type=media_types,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

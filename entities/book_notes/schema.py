@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from core.models.book_notes import NoteCategory
 
@@ -57,3 +57,13 @@ class BookNotesSchema(BookNotesBase):
     book: BookBookNotesSchema
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ExportBookNotesOptions(BaseModel):
+    format: str = Field(default="csv", description="Формат експорту: csv, json, pdf")
+    category_filter: str | NoteCategory = Field(
+        default="all", description="Фільтр за категорією нотаток або 'all'"
+    )
+    only_important: bool = Field(
+        default=False, description="Експортувати лише важливі нотатки"
+    )
