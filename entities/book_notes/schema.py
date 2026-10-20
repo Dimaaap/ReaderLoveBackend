@@ -67,3 +67,6 @@ class ExportBookNotesOptions(BaseModel):
     only_important: bool = Field(
         default=False, description="Експортувати лише важливі нотатки"
     )
+    include_page_number: bool = Field(
+        default=True, description="Включати номери сторінок"
+    )

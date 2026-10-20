@@ -185,6 +185,7 @@ async def get_user_notes_for_export(
     username: str,
     category_filter: str = "all",
     only_important: bool = False,
+    include_page_number: bool = True,
 ) -> list[dict]:
     statement = (
         select(BookNotes)
@@ -222,6 +223,9 @@ async def get_user_notes_for_export(
                 note.created_at.strftime("%Y-%m-%d %H:%M") if note.created_at else ""
             ),
         }
+
+        if include_page_number:
+            item["book_page"] = note.book_page if note.book_page is not None else "-"
 
         export_data.append(item)
 

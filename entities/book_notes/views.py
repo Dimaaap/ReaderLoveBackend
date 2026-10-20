@@ -216,7 +216,11 @@ async def export_user_notes(
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     data = await crud.get_user_notes_for_export(
-        session, username, options.category_filter, options.only_important
+        session,
+        username,
+        options.category_filter,
+        options.only_important,
+        options.include_page_number,
     )
 
     if not data:
