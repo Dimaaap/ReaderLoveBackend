@@ -47,66 +47,70 @@ def generate_noted_pdf_export(data: list[dict], username: str = "Користу�
     font_name = "Arial" if "Arial" in registered_fonts else "Helvetica"
 
     margin = 40
-    y = height - margin
+    content_width = width - (margin * 2)
 
-    def draw_header():
-        nonlocal y
+    def draw_background_and_header():
+        p.setFillColor(colors.HexColor("#12111"))
+        p.rect(0, height - 90, width, 90, stroke=0, fill=1)
+
         p.setFont(font_name, 10)
         p.setFillColor(colors.HexColor("#ff3b69"))
-        p.drawString(margin, y, "ExLove - Експорт нотаток")
+        p.drawString(margin, height - 15, "ExLove • АРХІВ НОТАТОК ТА ЦИТАТ")
+
+        p.setFont(font_name, 16)
+        p.setFillColor(colors.white)
+        p.drawString(margin, height - 60, f"Користувач: {username}")
 
         export_date = datetime.now().strftime("%d.%m.%Y")
-        p.setFillColor(colors.HexColor("#6b7280"))
-        p.drawRightString(width - margin, y, f"Дата: {export_date}")
+        p.setFont(font_name, 9)
+        p.setFillColor(colors.HexColor("#9ca3af"))
+        p.drawRightString(width - margin, height - 55, f"Дата: {export_date}")
 
-        y -= 15
-        p.setFont(font_name, 18)
-        p.setFillColor(colors.HexColor("#111827"))
-        p.drawString(margin, y, f"Нотатки та цитати: {username}")
+    draw_background_and_header()
+    y = height - 120
 
-        y -= 10
-        p.setStrokeColor(colors.HexColor("#e5e7eb"))
-        p.setLineWidth(1)
-        p.line(margin, y, width - margin, y)
-        y -= 15
-
-    draw_header()
-
-    for item in data:
-        if y < 80:
+    for index, item in enumerate(data, 1):
+        if y < 90:
             p.showPage()
-            y = height - margin
-            draw_header()
+            draw_background_and_header()
+            y = height - 120
 
         book_title = str(item.get("book_title") or item.get("book_tilte", "Без назви"))
         category = str(item.get("category", ""))
         page = str(item.get("book_page", "-"))
-        note_text = str(item.get("note_text", ""))[:90]
+        note_text = str(item.get("note_text", ""))
 
-        p.setFont(font_name, 10)
-        p.setFillColor(colors.HexColor("#4b5563"))
-        meta_info = f"📚 {book_title}  |  🏷️ {category}"
+        card_height = 55
+        card_y = y - card_height
+
+        p.setFillColor(colors.HexColor("#f9fafb"))
+        p.setStrokeColor(colors.HexColor("#e5e7eb"))
+        p.setLineWidth(0.5)
+        p.roundRect(margin, card_y, content_width, card_height, 6, stroke=1, fill=1)
+
+        p.setFillColor(colors.HexColor("#ff3b69"))
+        p.rect(margin, card_y, 4, card_height, stroke=0, fill=1)
+
+        p.setFont(font_name, 8)
+        p.setFillColor(colors.HexColor("#6b7280"))
+        meta_parts = [f"Книга: {book_title}", f"Категорія: {category}"]
 
         if page != "-":
-            meta_info += f"  |  📖 Стор. {page}"
-        p.drawString(margin, y, meta_info)
-        y -= 15
+            meta_parts.append(f"Стор. {page}")
+        p.drawString(margin + 15, card_y + card_height - 15, "  •  ".join(meta_parts))
 
-        p.setFont(font_name, 11)
+        p.setFont(font_name, 10)
         p.setFillColor(colors.HexColor("#1f2937"))
 
         max_length = 100
-        if len(note_text) > max_length:
-            note_text_display = note_text[:max_length] + "..."
-        else:
-            note_text_display = note_text
+        note_text_display = (
+            (note_text[:max_length] + "...")
+            if len(note_text) > max_length
+            else note_text
+        )
+        p.drawString(margin + 15, card_y + card_height - 35, f'"{note_text_display}"')
 
-        p.drawString(margin + 10, y, f'"{note_text_display}"')
-        y -= 25
-
-        p.setStrokeColor(colors.HexColor("#f3f4f6"))
-        p.line(margin, y + 10, width - margin, y + 10)
-        y -= 10
+        y = card_y - 12
 
     p.save()
     buffer.seek(0)

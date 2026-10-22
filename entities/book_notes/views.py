@@ -242,7 +242,7 @@ async def export_user_notes(
         media_types = "application/json"
         filename = f"{username}_notes.json"
     elif options.format == "pdf":
-        file_bytes = utils.generate_noted_pdf_export(data)
+        file_bytes = utils.generate_noted_pdf_export(data, username)
         media_types = "application/pdf"
         filename = f"{username}_notes.pdf"
 

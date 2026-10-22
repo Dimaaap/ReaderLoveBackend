@@ -28,6 +28,8 @@ __all__ = (
     "UserChallenge",
     "ChallengeWinner",
     "ChallengeSuperWinner",
+    "BookCollection",
+    "BookCollectionAssociation",
 )
 
 from .base import Base
@@ -59,3 +61,5 @@ from .user_challenge import UserChallenge
 from .challenge_winners import ChallengeWinner, ChallengeSuperWinner
 from .book_selection import BookSelection
 from .book_selection_association import BookSelectionAssociation
+from .book_collection import BookCollection
+from .book_collection_association import BookCollectionAssociation

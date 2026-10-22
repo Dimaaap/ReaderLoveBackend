@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from .book_reviews import BookReview
     from .challenge_book import ChallengeBook
     from .book_selection import BookSelection
+    from .book_collection import BookCollection
 
 
 class Book(Base):
@@ -78,6 +79,10 @@ class Book(Base):
 
     selections: Mapped[list["BookSelection"]] = relationship(
         secondary="book_selection_association", back_populates="books"
+    )
+
+    book_collections: Mapped[list["BookCollection"]] = relationship(
+        secondary="book_collection_association", back_populates="books"
     )
 
     def __str__(self):
