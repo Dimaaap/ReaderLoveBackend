@@ -20,6 +20,7 @@ from .book_selections import router as book_selections_router
 from .stats import router as stats_router
 from .admin import router as admin_router
 from .changelog import router as changelog_router
+from .book_collections import router as book_collections_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(social_links_router)
@@ -42,3 +43,4 @@ router.include_router(book_selections_router)
 router.include_router(stats_router)
 router.include_router(admin_router)
 router.include_router(changelog_router)
+router.include_router(book_collections_router)

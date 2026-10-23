@@ -93,14 +93,25 @@ class BookDetailSchema(BookSchema):
     rating: float | None = None
     read_pages: int = Field(default=0, alias="last_read_page")
     active_session: ActiveReadingSessionSchema | None = None
+    active_session_id: int | None = None
     status: BookReadStatus | None = None
+
+    custom_image_link: str | None = None
+    cover_color: str | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class UserBookStatusUpdate(BaseModel):
-    status: BookReadStatus
+    status: BookReadStatus | None = None
     last_read_page: int | None = 0
+    custom_image_link: str | None = None
+    cover_color: str | None = None
+
+
+class UserBookCoverUpdate(BaseModel):
+    custom_image_link: str | None = None
+    cover_color: str | None = None
 
 
 class BookSchemaWithSessions(BookDetailSchema):
@@ -132,5 +143,7 @@ class UserBookItemSchema(BaseModel):
 class UserBookSchema(BookSchema):
     status: BookReadStatus | None = None
     last_read_page: int = 0
+    custom_image_link: str | None = None
+    cover_color: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

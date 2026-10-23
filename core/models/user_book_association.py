@@ -46,6 +46,9 @@ class UserBookAssociation(BaseWithoutId):
         Integer, default=0, server_default="0", nullable=False
     )
 
+    custom_image_link: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    cover_color: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         server_default=func.now(),

@@ -20,6 +20,7 @@ from entities.books.schema import (
     ExportLibraryOptions,
     UserBookStatusUpdate,
     UserBookSchema,
+    UserBookCoverUpdate,
 )
 
 from . import crud
@@ -330,6 +331,32 @@ async def update_or_add_book_status(
             assoc.status.value if hasattr(assoc.status, "value") else str(assoc.status)
         ),
         "last_read_page": assoc.last_read_page,
+        "custom_image_link": assoc.custom_image_link,
+        "cover_color": assoc.cover_color,
+    }
+
+
+@router.patch("/{username}/cover/{book_slug}")
+async def update_user_book_cover_view(
+    username: str,
+    book_slug: str,
+    data: UserBookCoverUpdate,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    try:
+        assoc = await crud.update_user_book_cover_and_color(
+            session, username, book_slug, data.custom_image_link, data.cover_color
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    await redis_client.delete(f"book:{username}:{book_slug}")
+    await redis_client.delete(f"books:{username}:active")
+
+    return {
+        "ok": True,
+        "custom_image_link": assoc.custom_image_link,
+        "cover_color": assoc.cover_color,
     }
 
 

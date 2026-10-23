@@ -17,7 +17,6 @@ from core.models import (
     ReadingSession,
     BookReview,
     BookPublisher,
-    GenreBookAssociation,
 )
 from core.models.user_book_association import BookReadStatus
 from entities.books.utils import calculate_streak
@@ -466,6 +465,8 @@ async def set_user_book_status(
             user_id=user_id,
             book_id=book_id,
             status=data.status,
+            custom_image_link=data.custom_image_link,
+            cover_color=data.cover_color,
             last_read_page=data.last_read_page or 0,
         )
         session.add(assoc)
@@ -490,6 +491,54 @@ async def set_user_book_status(
             f"Added last_read_page for book {book_slug}: last read page is {latest_end_page}"
         )
         assoc.last_read_page = latest_end_page
+
+    await session.commit()
+    await session.refresh(assoc)
+    return assoc
+
+
+async def update_user_book_cover_and_color(
+    session: AsyncSession,
+    username: str,
+    book_slug: str,
+    custom_image_link: str | None = None,
+    cover_color: str | None = None,
+) -> UserBookAssociation:
+    logger.info(f"Try to update cover/color for book {book_slug} and user {username}")
+
+    user_stmt = select(User.id).where(User.username == username)
+    user_res = await session.execute(user_stmt)
+    user_id = user_res.scalar_one_or_none()
+    if not user_id:
+        raise ValueError("User not found")
+
+    book_stmt = select(Book.id).where(Book.slug == book_slug)
+    book_res = await session.execute(book_stmt)
+    book_id = book_res.scalar_one_or_none()
+    if not book_id:
+        raise ValueError("Book not found")
+
+    assoc_statement = select(UserBookAssociation).where(
+        UserBookAssociation.user_id == user_id, UserBookAssociation.book_id == book_id
+    )
+    assoc_res = await session.execute(assoc_statement)
+    assoc = assoc_res.scalar_one_or_none()
+
+    if assoc:
+        if custom_image_link is not None:
+            assoc.custom_image_link = custom_image_link
+        if cover_color is not None:
+            assoc.cover_color = cover_color
+    else:
+        assoc = UserBookAssociation(
+            user_id=user_id,
+            book_id=book_id,
+            custom_image_link=custom_image_link,
+            cover_color=cover_color,
+            status=BookReadStatus.WANT_TO_READ,
+            last_read_page=0,
+        )
+        session.add(assoc)
 
     await session.commit()
     await session.refresh(assoc)
@@ -587,7 +636,13 @@ async def get_book_by_slug_for_user(
         return None
 
     user_assoc_stmt = (
-        select(User.id, UserBookAssociation.last_read_page, UserBookAssociation.status)
+        select(
+            User.id,
+            UserBookAssociation.last_read_page,
+            UserBookAssociation.status,
+            UserBookAssociation.custom_image_link,
+            UserBookAssociation.cover_color,
+        )
         .outerjoin(
             UserBookAssociation,
             (UserBookAssociation.user_id == User.id)
@@ -599,17 +654,19 @@ async def get_book_by_slug_for_user(
     result = await session.execute(user_assoc_stmt)
     user_row = result.first()
 
+    custom_image_link = None
+    cover_color = None
     sessions_count = 0
     active_session_id = None
     last_read_page = 0
     read_status = None
 
     if user_row and user_row.id:
-        user_id, last_read_page, read_status = (
-            user_row.id,
-            user_row.last_read_page,
-            user_row.status,
-        )
+        user_id = user_row.id
+        last_read_page = user_row.last_read_page
+        read_status = user_row.status
+        custom_image_link = user_row.custom_image_link
+        cover_color = user_row.cover_color
 
         stats_statement = select(
             func.count(ReadingSession.id).label("sessions_count"),
@@ -646,8 +703,10 @@ async def get_book_by_slug_for_user(
 
     book_detail.reading_sessions_count = sessions_count
     book_detail.read_pages = last_read_page or 0
-    book_detail.active_session_id = active_session_id
+    book_detail.active_session = active_session_id
     book_detail.status = read_status
+    book_detail.custom_image_link = custom_image_link
+    book_detail.cover_color = cover_color
 
     return book_detail
 
@@ -885,7 +944,13 @@ async def get_user_active_books_for_notes(
     username: str, session: AsyncSession
 ) -> list[UserBookSchema]:
     statement = (
-        select(Book, UserBookAssociation.status, UserBookAssociation.last_read_page)
+        select(
+            Book,
+            UserBookAssociation.status,
+            UserBookAssociation.last_read_page,
+            UserBookAssociation.custom_image_link,
+            UserBookAssociation.cover_color,
+        )
         .join(UserBookAssociation, Book.id == UserBookAssociation.book_id)
         .join(User, UserBookAssociation.user_id == User.id)
         .where(User.username == username)
@@ -896,7 +961,13 @@ async def get_user_active_books_for_notes(
     result = await session.execute(statement)
 
     user_books = []
-    for book, status_val, last_read_page in result.all():
+    for (
+        book,
+        status_val,
+        last_read_page,
+        custom_image_link,
+        cover_color,
+    ) in result.all():
         base_book_schema = BookSchema.model_validate(book)
 
         book_dict = base_book_schema.model_dump()
@@ -905,6 +976,8 @@ async def get_user_active_books_for_notes(
             status_val.value if hasattr(status_val, "value") else str(status_val)
         )
         book_dict["last_read_page"] = last_read_page or 0
+        book_dict["custom_image_link"] = custom_image_link
+        book_dict["cover_color"] = cover_color
 
         user_books.append(UserBookSchema(**book_dict))
 

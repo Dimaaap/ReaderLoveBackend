@@ -137,4 +137,43 @@ async def add_book_to_collection(
 ) -> BookCollection:
     logger.info(f"Try to add book id {book_id} to collection id {collection_id}")
 
+    collection = await get_collection_by_id(session, collection_id, username)
 
+    if not collection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Колекцію не знайдено"
+        )
+
+    book_statement = select(Book).where(Book.id == book_id)
+    book_result = await session.execute(book_statement)
+    book = book_result.scalar_one_or_none()
+
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Книгу не знайдено"
+        )
+
+    if book not in collection.books:
+        collection.books.append(book)
+        await session.commit()
+        await session.refresh(collection)
+
+    return collection
+
+
+async def remove_book_from_collection(
+    session: AsyncSession, collection_id: int, book_id: int, username: str
+) -> BookCollection:
+    logger.info(f"Try to remove book id {book_id} from collection id {collection_id}")
+
+    collection = await get_collection_by_id(session, collection_id, username)
+    if not collection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Колекцію не знайдено"
+        )
+
+    collection.books = [b for b in collection.books if b.id != book_id]
+    await session.commit()
+    await session.refresh(collection)
+
+    return collection

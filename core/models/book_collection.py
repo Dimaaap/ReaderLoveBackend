@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .base import Base
 
@@ -21,7 +21,10 @@ class BookCollection(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_defeault=func.now(), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
