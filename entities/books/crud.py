@@ -525,8 +525,7 @@ async def update_user_book_cover_and_color(
     assoc = assoc_res.scalar_one_or_none()
 
     if assoc:
-        if custom_image_link is not None:
-            assoc.custom_image_link = custom_image_link
+        assoc.custom_image_link = custom_image_link
         if cover_color is not None:
             assoc.cover_color = cover_color
     else:
