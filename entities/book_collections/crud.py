@@ -144,7 +144,11 @@ async def add_book_to_collection(
             status_code=status.HTTP_404_NOT_FOUND, detail="Колекцію не знайдено"
         )
 
-    book_statement = select(Book).where(Book.id == book_id)
+    book_statement = (
+        select(Book)
+        .where(Book.id == book_id)
+        .options(selectinload(Book.authors), selectinload(Book.genres))
+    )
     book_result = await session.execute(book_statement)
     book = book_result.scalar_one_or_none()
 

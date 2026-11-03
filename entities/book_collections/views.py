@@ -16,7 +16,7 @@ from . import crud
 router = APIRouter(tags=["Book Collection"])
 
 
-@router.get("/{username}", response_model=list[BookCollectionSchema])
+@router.get("/{username}", response_model=list[BookCollectionWithDetailsSchema])
 async def get_user_collections(
     username: str, session: AsyncSession = Depends(db_helper.scoped_session_dependency)
 ):
@@ -29,7 +29,9 @@ async def get_user_collections(
         return json.loads(cached)
 
     collections = await crud.get_user_collections(session, username)
-    result = [BookCollectionSchema.model_validate(col) for col in collections]
+    result = [
+        BookCollectionWithDetailsSchema.model_validate(col) for col in collections
+    ]
 
     logger.info(f"Return collections for user {username} from db")
 

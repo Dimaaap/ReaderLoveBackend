@@ -3,7 +3,7 @@ from fastapi import status, HTTPException
 from datetime import datetime, timezone, timedelta
 
 from loguru import logger
-from sqlalchemy import select, func, case, desc, cast, Date, or_
+from sqlalchemy import select, func, case, desc, cast, Date, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -657,6 +657,7 @@ async def get_book_by_slug_for_user(
     cover_color = None
     sessions_count = 0
     active_session_id = None
+    active_session_data = None
     last_read_page = 0
     read_status = None
 
@@ -667,27 +668,35 @@ async def get_book_by_slug_for_user(
         custom_image_link = user_row.custom_image_link
         cover_color = user_row.cover_color
 
-        stats_statement = select(
-            func.count(ReadingSession.id).label("sessions_count"),
-            func.max(
-                case(
-                    (
-                        ReadingSession.ended_at.is_(None),
-                        ReadingSession.id,
-                    ),
-                    else_=None,
-                )
-            ).label("active_session_id"),
-        ).where(
-            ReadingSession.book_id == book.id,
-            ReadingSession.user_id == user_id,
+        sessions_statement = (
+            select(ReadingSession)
+            .where(
+                ReadingSession.book_id == book.id,
+                ReadingSession.user_id == user_id,
+            )
+            .order_by(desc(ReadingSession.started_at))
         )
 
-        stats_result = await session.execute(stats_statement)
-        stats = stats_result.one()
+        sessions_result = await session.execute(sessions_statement)
+        sessions = sessions_result.scalars().all()
 
-        sessions_count = stats.sessions_count
-        active_session_id = stats.active_session_id
+        sessions_count = len(sessions)
+
+        active_session = next(
+            (session for session in sessions if session.ended_at is None),
+            None,
+        )
+
+        if active_session:
+            active_session_id = active_session.id
+
+            active_session_data = ActiveReadingSessionSchema(
+                id=active_session.id,
+                started_at=active_session.started_at,
+                paused_at=active_session.paused_at,
+                net_duration_seconds=active_session.net_duration_seconds,
+                is_paused=active_session.is_paused,
+            )
 
     book_detail = BookDetailSchema.model_validate(book)
 
@@ -702,7 +711,8 @@ async def get_book_by_slug_for_user(
 
     book_detail.reading_sessions_count = sessions_count
     book_detail.read_pages = last_read_page or 0
-    book_detail.active_session = active_session_id
+    book_detail.active_session = active_session_data
+    book_detail.active_session_id = active_session_id
     book_detail.status = read_status
     book_detail.custom_image_link = custom_image_link
     book_detail.cover_color = cover_color
@@ -949,9 +959,18 @@ async def get_user_active_books_for_notes(
             UserBookAssociation.last_read_page,
             UserBookAssociation.custom_image_link,
             UserBookAssociation.cover_color,
+            ReadingSession,
         )
         .join(UserBookAssociation, Book.id == UserBookAssociation.book_id)
         .join(User, UserBookAssociation.user_id == User.id)
+        .outerjoin(
+            ReadingSession,
+            and_(
+                ReadingSession.book_id == Book.id,
+                ReadingSession.user_id == UserBookAssociation.user_id,
+                ReadingSession.ended_at.is_(None),
+            ),
+        )
         .where(User.username == username)
         .options(selectinload(Book.authors), selectinload(Book.genres))
         .order_by(Book.title)
@@ -966,6 +985,7 @@ async def get_user_active_books_for_notes(
         last_read_page,
         custom_image_link,
         cover_color,
+        active_session,
     ) in result.all():
         base_book_schema = BookSchema.model_validate(book)
 
@@ -977,6 +997,13 @@ async def get_user_active_books_for_notes(
         book_dict["last_read_page"] = last_read_page or 0
         book_dict["custom_image_link"] = custom_image_link
         book_dict["cover_color"] = cover_color
+
+        book_dict["active_session"] = (
+            ActiveReadingSessionSchema.model_validate(active_session)
+            if active_session
+            else None
+        )
+        book_dict["active_session_id"] = active_session.id if active_session else None
 
         user_books.append(UserBookSchema(**book_dict))
 

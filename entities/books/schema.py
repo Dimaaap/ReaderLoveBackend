@@ -80,6 +80,7 @@ class PublisherSchema(BaseModel):
 class ActiveReadingSessionSchema(BaseModel):
     id: int
     started_at: datetime
+    paused_at: datetime | None = None
     net_duration_seconds: int = 0
     is_paused: bool = False
 
@@ -145,5 +146,8 @@ class UserBookSchema(BookSchema):
     last_read_page: int = 0
     custom_image_link: str | None = None
     cover_color: str | None = None
+
+    active_session: ActiveReadingSessionSchema | None = None
+    active_session_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
