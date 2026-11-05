@@ -18,7 +18,7 @@ from core.models import (
     BookReview,
     BookPublisher,
 )
-from core.models.user_book_association import BookReadStatus
+from core.models.user_book_association import BookReadStatus, TrackingType
 from entities.books.utils import calculate_streak
 from .data import books
 from entities.books.schema import (
@@ -97,7 +97,7 @@ async def get_book_by_id_without_username(
     book = result.scalar_one_or_none()
 
     if not book:
-        logger.error(f"Failed to get book with id {book_id} - book was not found in db")
+        logger.error(f"Failed to get book with id {book_id} book was not found in db")
         return None
 
     return BookSchema.model_validate(book)
@@ -122,7 +122,7 @@ async def get_book_by_id(
     book = result.scalar_one_or_none()
 
     if not book:
-        logger.error(f"Failed to get book with id {book_id} - book was not found in db")
+        logger.error(f"Failed to get book with id {book_id} book was not found in db")
         return None
 
     reviews = getattr(book, "reviews", [])
@@ -138,7 +138,11 @@ async def get_book_by_id(
     if username:
         user_stmt = (
             select(
-                User.id, UserBookAssociation.last_read_page, UserBookAssociation.status
+                User.id,
+                UserBookAssociation.last_read_page,
+                UserBookAssociation.last_read_percent,
+                UserBookAssociation.tracking_type,
+                UserBookAssociation.status,
             )
             .outerjoin(
                 UserBookAssociation,
@@ -151,9 +155,13 @@ async def get_book_by_id(
         user_row = user_result.first()
 
         if user_row and user_row.id:
-            user_id, last_read_page, status_val = user_row
+            user_id, last_read_page, last_read_percent, tracking_type, status_val = (
+                user_row
+            )
 
             book_detail.read_pages = last_read_page or 0
+            book_detail.last_read_percent = last_read_percent or 0.0
+            book_detail.tracking_type = tracking_type or TrackingType.PAGES
             book_detail.status = (
                 status_val.value if hasattr(status_val, "value") else status_val
             )
@@ -215,7 +223,7 @@ async def get_book_by_slug_for_user_with_status(
     book = result_book.scalar_one_or_none()
 
     if not book:
-        logger.error(f"Failed to get book { book_slug } - Book not found")
+        logger.error(f"Failed to get book {book_slug} Book not found")
         return None
 
     user_statement = select(User.id).where(User.username == username)
@@ -223,12 +231,17 @@ async def get_book_by_slug_for_user_with_status(
     user_id = result_user.scalar_one_or_none()
     user_status = None
     last_read_page = 0
+    last_read_percent = 0.0
+    tracking_type = TrackingType.PAGES
     sessions_count = 0
     active_session_id = None
 
     if user_id:
         associated_statement = select(
-            UserBookAssociation.status, UserBookAssociation.last_read_page
+            UserBookAssociation.status,
+            UserBookAssociation.last_read_page,
+            UserBookAssociation.last_read_percent,
+            UserBookAssociation.tracking_type,
         ).where(
             UserBookAssociation.book_id == book.id,
             UserBookAssociation.user_id == user_id,
@@ -238,7 +251,9 @@ async def get_book_by_slug_for_user_with_status(
         associated_row = associated_res.first()
 
         if associated_row:
-            user_status, last_read_page = associated_row
+            user_status, last_read_page, last_read_percent, tracking_type = (
+                associated_row
+            )
 
         stats_statement = select(
             func.count(ReadingSession.id).label("sessions_count"),
@@ -257,6 +272,8 @@ async def get_book_by_slug_for_user_with_status(
     book_detail.reading_sessions_count = sessions_count
     book_detail.active_session_id = active_session_id
     book_detail.read_pages = last_read_page or 0
+    book_detail.last_read_percent = last_read_percent or 0.0
+    book_detail.tracking_type = tracking_type or TrackingType.PAGES
     book_detail.status = user_status
 
     return book_detail.model_dump(by_alias=False)
@@ -312,7 +329,12 @@ async def get_book_by_slug_for_user_with_sessions_stats(
         return None
 
     user_stmt = (
-        select(User.id, UserBookAssociation.last_read_page)
+        select(
+            User.id,
+            UserBookAssociation.last_read_page,
+            UserBookAssociation.last_read_percent,
+            UserBookAssociation.tracking_type,
+        )
         .outerjoin(
             UserBookAssociation,
             (UserBookAssociation.user_id == User.id)
@@ -327,7 +349,7 @@ async def get_book_by_slug_for_user_with_sessions_stats(
         book_data = BookSchema.model_validate(book).model_dump()
         return BookSchemaWithSessions(**book_data)
 
-    user_id, assoc_last_read_page = user_row
+    user_id, assoc_last_read_page, assoc_last_read_percent, tracking_type = user_row
 
     latest_session_stmt = (
         select(ReadingSession.end_page)
@@ -341,6 +363,7 @@ async def get_book_by_slug_for_user_with_sessions_stats(
     read_pages = (
         latest_end_page if latest_end_page is not None else (assoc_last_read_page or 0)
     )
+    last_read_percent = assoc_last_read_percent or 0.0
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
     active_session_statement = (
@@ -412,6 +435,8 @@ async def get_book_by_slug_for_user_with_sessions_stats(
         {
             "reading_sessions_count": stats.sessions_count,
             "read_pages": read_pages,
+            "last_read_percent": last_read_percent,
+            "tracking_type": tracking_type or TrackingType.PAGES,
             "weekly_read_pages": stats.weekly_pages,
             "active_session_id": active_session.id if active_session else None,
             "active_session": active_reading_session_data,
@@ -435,7 +460,7 @@ async def set_user_book_status(
 
     if not user_id:
         logger.error(
-            f"Failed to set book status in book {book_slug} for user {username} - user was not found"
+            f"Failed to set book status in book {book_slug} for user {username} user was not found"
         )
         raise ValueError("User not found")
 
@@ -445,7 +470,7 @@ async def set_user_book_status(
 
     if not book_id:
         logger.error(
-            f"Failed to set book status in book {book_slug} for user {username} - book was not found"
+            f"Failed to set book status in book {book_slug} for user {username} book was not found"
         )
         raise ValueError("Book not found")
 
@@ -458,16 +483,22 @@ async def set_user_book_status(
 
     if assoc:
         assoc.status = data.status
+        if data.tracking_type is not None:
+            assoc.tracking_type = data.tracking_type
         if data.last_read_page is not None:
             assoc.last_read_page = data.last_read_page
+        if data.last_read_percent is not None:
+            assoc.last_read_percent = data.last_read_percent
     else:
         assoc = UserBookAssociation(
             user_id=user_id,
             book_id=book_id,
             status=data.status,
+            tracking_type=data.tracking_type or TrackingType.PAGES,
             custom_image_link=data.custom_image_link,
             cover_color=data.cover_color,
             last_read_page=data.last_read_page or 0,
+            last_read_percent=data.last_read_percent or 0.0,
         )
         session.add(assoc)
 
@@ -480,17 +511,25 @@ async def set_user_book_status(
     latest_session_res = await session.execute(latest_session_statement)
     latest_end_page = latest_session_res.scalar_one_or_none()
 
-    if data.last_read_page is not None:
+    if data.last_read_page is not None and assoc.tracking_type == TrackingType.PAGES:
         logger.info(
             f"Added last_read_page for book {book_slug}: last read page is {data.last_read_page}"
         )
         assoc.last_read_page = data.last_read_page
-
-    elif latest_end_page is not None:
+    elif latest_end_page is not None and assoc.tracking_type == TrackingType.PAGES:
         logger.info(
             f"Added last_read_page for book {book_slug}: last read page is {latest_end_page}"
         )
         assoc.last_read_page = latest_end_page
+
+    if (
+        data.last_read_percent is not None
+        and assoc.tracking_type == TrackingType.PERCENT
+    ):
+        logger.info(
+            f"Added last_read_percent for book {book_slug}: last read percent is {data.last_read_percent}"
+        )
+        assoc.last_read_percent = data.last_read_percent
 
     await session.commit()
     await session.refresh(assoc)
@@ -535,7 +574,9 @@ async def update_user_book_cover_and_color(
             custom_image_link=custom_image_link,
             cover_color=cover_color,
             status=BookReadStatus.WANT_TO_READ,
+            tracking_type=TrackingType.PAGES,
             last_read_page=0,
+            last_read_percent=0.0,
         )
         session.add(assoc)
 
@@ -551,7 +592,13 @@ async def get_user_library_for_export(
     include_notes: bool = True,
 ) -> list[dict]:
     statement = (
-        select(Book, UserBookAssociation.status, UserBookAssociation.last_read_page)
+        select(
+            Book,
+            UserBookAssociation.status,
+            UserBookAssociation.last_read_page,
+            UserBookAssociation.last_read_percent,
+            UserBookAssociation.tracking_type,
+        )
         .join(UserBookAssociation, Book.id == UserBookAssociation.book_id)
         .join(User, UserBookAssociation.user_id == User.id)
         .where(User.username == username)
@@ -579,7 +626,7 @@ async def get_user_library_for_export(
 
     export_data = []
 
-    for book, status_val, last_read_page in rows:
+    for book, status_val, last_read_page, last_read_percent, tracking_type in rows:
         item = {
             "title": book.title,
             "authors": ", ".join(
@@ -594,7 +641,9 @@ async def get_user_library_for_export(
             ),
             "genres": ", ".join([g.title for g in book.genres]),
             "pages": getattr(book, "pages_count", getattr(book, "pages", None)),
+            "tracking_type": tracking_type,
             "last_read_page": last_read_page or 0,
+            "last_read_percent": last_read_percent or 0.0,
             "status": (
                 status_val.value if hasattr(status_val, "value") else str(status_val)
             ),
@@ -630,7 +679,7 @@ async def get_book_by_slug_for_user(
 
     if not book:
         logger.error(
-            f"Failed to get book {book_slug} for user {username} - book was not found"
+            f"Failed to get book {book_slug} for user {username} book was not found"
         )
         return None
 
@@ -638,6 +687,8 @@ async def get_book_by_slug_for_user(
         select(
             User.id,
             UserBookAssociation.last_read_page,
+            UserBookAssociation.last_read_percent,
+            UserBookAssociation.tracking_type,
             UserBookAssociation.status,
             UserBookAssociation.custom_image_link,
             UserBookAssociation.cover_color,
@@ -659,11 +710,15 @@ async def get_book_by_slug_for_user(
     active_session_id = None
     active_session_data = None
     last_read_page = 0
+    last_read_percent = 0.0
+    tracking_type = TrackingType.PAGES
     read_status = None
 
     if user_row and user_row.id:
         user_id = user_row.id
         last_read_page = user_row.last_read_page
+        last_read_percent = user_row.last_read_percent
+        tracking_type = user_row.tracking_type
         read_status = user_row.status
         custom_image_link = user_row.custom_image_link
         cover_color = user_row.cover_color
@@ -711,6 +766,8 @@ async def get_book_by_slug_for_user(
 
     book_detail.reading_sessions_count = sessions_count
     book_detail.read_pages = last_read_page or 0
+    book_detail.last_read_percent = last_read_percent or 0.0
+    book_detail.tracking_type = tracking_type or TrackingType.PAGES
     book_detail.active_session = active_session_data
     book_detail.active_session_id = active_session_id
     book_detail.status = read_status
@@ -730,7 +787,7 @@ async def get_current_main_reading_book(
 
     if not user_id:
         logger.error(
-            f"Failed to get current book for user {username} - user was not found"
+            f"Failed to get current book for user {username} user was not found"
         )
         return None
 
@@ -956,7 +1013,9 @@ async def get_user_active_books_for_notes(
         select(
             Book,
             UserBookAssociation.status,
+            UserBookAssociation.tracking_type,
             UserBookAssociation.last_read_page,
+            UserBookAssociation.last_read_percent,
             UserBookAssociation.custom_image_link,
             UserBookAssociation.cover_color,
             ReadingSession,
@@ -982,7 +1041,9 @@ async def get_user_active_books_for_notes(
     for (
         book,
         status_val,
+        tracking_type,
         last_read_page,
+        last_read_percent,
         custom_image_link,
         cover_color,
         active_session,
@@ -994,7 +1055,9 @@ async def get_user_active_books_for_notes(
         book_dict["status"] = (
             status_val.value if hasattr(status_val, "value") else str(status_val)
         )
+        book_dict["tracking_type"] = tracking_type or TrackingType.PAGES
         book_dict["last_read_page"] = last_read_page or 0
+        book_dict["last_read_percent"] = last_read_percent or 0.0
         book_dict["custom_image_link"] = custom_image_link
         book_dict["cover_color"] = cover_color
 

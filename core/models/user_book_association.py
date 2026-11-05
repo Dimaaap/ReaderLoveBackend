@@ -4,7 +4,15 @@ from datetime import datetime
 from enum import Enum
 import os
 
-from sqlalchemy import ForeignKey, String, DateTime, Integer, Enum as SqlEnum, func
+from sqlalchemy import (
+    ForeignKey,
+    String,
+    DateTime,
+    Integer,
+    Float,
+    Enum as SqlEnum,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import BaseWithoutId
@@ -20,6 +28,11 @@ class BookReadStatus(str, Enum):
     FINISHED = "finished"
     PAUSED = "paused"
     ABANDONED = "abandoned"
+
+
+class TrackingType(str, Enum):
+    PAGES = "pages"
+    PERCENT = "percent"
 
 
 class UserBookAssociation(BaseWithoutId):
@@ -42,10 +55,19 @@ class UserBookAssociation(BaseWithoutId):
         nullable=False,
     )
 
+    tracking_type: Mapped[TrackingType] = mapped_column(
+        SqlEnum(TrackingType, values_callable=lambda enum: [e.value for e in enum]),
+        default=TrackingType.PAGES,
+        server_default=TrackingType.PAGES.value,
+        nullable=False,
+    )
     last_read_page: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False
     )
 
+    last_read_percent: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0.0", nullable=False
+    )
     custom_image_link: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cover_color: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

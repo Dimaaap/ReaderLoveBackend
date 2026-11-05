@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from core.models.user_book_association import BookReadStatus
+from core.models.user_book_association import BookReadStatus, TrackingType
 from entities.book_authors.schema import BookAuthorsSchema
 from entities.book_genres.schema import BookGenreSchema
 from entities.book_reviews.schema import BookReviewSchema
@@ -93,6 +93,10 @@ class BookDetailSchema(BookSchema):
     reading_sessions_count: int = 0
     rating: float | None = None
     read_pages: int = Field(default=0, alias="last_read_page")
+
+    tracking_type: TrackingType = TrackingType.PAGES
+    last_read_percent: float = Field(default=0.0, ge=0.0, le=100.0)
+
     active_session: ActiveReadingSessionSchema | None = None
     active_session_id: int | None = None
     status: BookReadStatus | None = None
@@ -105,9 +109,21 @@ class BookDetailSchema(BookSchema):
 
 class UserBookStatusUpdate(BaseModel):
     status: BookReadStatus | None = None
+    tracking_type: TrackingType | None = TrackingType.PAGES
     last_read_page: int | None = 0
+    last_read_percent: float | None = Field(default=0.0, ge=0.0, le=100.0)
     custom_image_link: str | None = None
     cover_color: str | None = None
+
+    @model_validator(mode="after")
+    def validate_tracking_type(self):
+        if (
+            self.tracking_type == TrackingType.PERCENT
+            and self.last_read_percent is not None
+        ):
+            if not (0.0 <= self.last_read_percent <= 100.0):
+                raise ValueError("last_read_percent must be between 0.0 and 100.0")
+        return self
 
 
 class UserBookCoverUpdate(BaseModel):

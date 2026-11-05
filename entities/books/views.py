@@ -107,7 +107,7 @@ async def get_book_by_slug(
 
     book = await crud.get_book_by_slug(session, book_slug)
     if not book:
-        logger.error(f"Failed to get book {book_slug} - Book was not found in db")
+        logger.error(f"Failed to get book {book_slug} Book was not found in db")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
@@ -147,7 +147,7 @@ async def delete_user_book_status(
     if not deleted:
         logger.error(
             f"Failed to delete reading book status in book "
-            f"{book_slug} for user {username} - book status or book was not found in db"
+            f"{book_slug} for user {username} book status or book was not found in db"
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book or status not found"
@@ -330,7 +330,9 @@ async def update_or_add_book_status(
         "status": (
             assoc.status.value if hasattr(assoc.status, "value") else str(assoc.status)
         ),
+        "tracking_type": assoc.tracking_type,
         "last_read_page": assoc.last_read_page,
+        "last_read_percent": assoc.last_read_percent,
         "custom_image_link": assoc.custom_image_link,
         "cover_color": assoc.cover_color,
     }
@@ -366,7 +368,7 @@ async def update_book(
     data: BookUpdatePartial,
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
-    book = await crud.get_book_by_id(session, book_id)
+    book = await crud.get_book_by_id_without_username(session, book_id)
 
     if not book:
         raise HTTPException(
@@ -441,7 +443,7 @@ async def delete_book_view(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Book not found"
         )
-    await crud.delete_book(session, book)
+    await crud.delete_book(session, book_id)
     await redis_client.delete(f"books:{book_id}")
     await redis_client.delete("books:all")
 
