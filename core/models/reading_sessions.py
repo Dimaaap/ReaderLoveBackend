@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from .users import User
     from .books import Book
     from .session_reactions import SessionReaction
+    from .reading_cycle import ReadingCycle
 
 
 class ReadingSession(Base):
@@ -30,6 +31,14 @@ class ReadingSession(Base):
         ForeignKey("books.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+    )
+
+    reading_cycle_id: Mapped[int | None] = mapped_column(
+        ForeignKey("reading_cycles.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+
+    reading_cycle: Mapped["ReadingCycle"] = relationship(
+        "ReadingCycle", back_populates="sessions"
     )
 
     started_at: Mapped[datetime] = mapped_column(

@@ -159,7 +159,9 @@ class UserBookItemSchema(BaseModel):
 
 class UserBookSchema(BookSchema):
     status: BookReadStatus | None = None
+    tracking_type: TrackingType = TrackingType.PAGES
     last_read_page: int = 0
+    last_read_percent: float = 0.0
     custom_image_link: str | None = None
     cover_color: str | None = None
 

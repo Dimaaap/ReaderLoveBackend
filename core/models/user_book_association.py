@@ -20,6 +20,7 @@ from .base import BaseWithoutId
 if TYPE_CHECKING:
     from .users import User
     from .books import Book
+    from .reading_cycle import ReadingCycle
 
 
 class BookReadStatus(str, Enum):
@@ -75,6 +76,12 @@ class UserBookAssociation(BaseWithoutId):
         DateTime(timezone=False),
         server_default=func.now(),
         nullable=False,
+    )
+
+    reading_cycles: Mapped[list["ReadingCycle"]] = relationship(
+        "ReadingCycle",
+        back_populates="user_book",
+        cascade="all, delete-orphan",
     )
 
     updated_at: Mapped[datetime] = mapped_column(

@@ -63,3 +63,4 @@ from .book_selection import BookSelection
 from .book_selection_association import BookSelectionAssociation
 from .book_collection import BookCollection
 from .book_collection_association import BookCollectionAssociation
+from .reading_cycle import ReadingCycle
