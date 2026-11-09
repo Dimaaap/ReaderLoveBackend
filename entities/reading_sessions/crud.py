@@ -3,11 +3,19 @@ from datetime import datetime
 import calendar
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from core.models import ReadingSession, User, UserBookAssociation, Book, SessionReaction
+from core.models import (
+    ReadingSession,
+    User,
+    UserBookAssociation,
+    Book,
+    SessionReaction,
+    ReadingCycle,
+)
+from core.models.reading_cycle import ReadingCycleStatus
 from core.models.user_book_association import BookReadStatus
 from entities.reading_sessions.schema import (
     ReadingSessionSchema,
@@ -17,6 +25,49 @@ from entities.reading_sessions.schema import (
     BookInSessionSchema,
     UserInSessionSchema,
 )
+
+
+async def get_or_create_first_reading_cycle(
+    session: AsyncSession, user_id: str, book_id: int
+) -> ReadingCycle:
+
+    statement = select(ReadingCycle).where(
+        ReadingCycle.user_id == user_id,
+        ReadingCycle.book_id == book_id,
+        ReadingCycle.status == ReadingCycleStatus.IN_PROGRESS,
+    )
+
+    result = await session.execute(statement)
+    active_cycle = result.scalar_one_or_none()
+
+    if active_cycle:
+        return active_cycle
+
+    max_number_statement = select(func.max(ReadingCycle.read_number)).where(
+        ReadingCycle.user_id == user_id,
+        ReadingCycle.book_id == book_id,
+    )
+
+    result = await session.execute(max_number_statement)
+    last_read_number = result.scalar_one() or 0
+
+    if last_read_number > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Book has already been read. Use reread endpoint to start a new cycle.",
+        )
+
+    cycle = ReadingCycle(
+        user_id=user_id,
+        book_id=book_id,
+        read_number=1,
+        status=ReadingCycleStatus.IN_PROGRESS,
+    )
+
+    session.add(cycle)
+    await session.flush()
+
+    return cycle
 
 
 def map_session_to_schema(
@@ -200,6 +251,22 @@ async def create_reading_session(
     association_result = await session.execute(association_statement)
     association = association_result.scalar_one_or_none()
 
+    if not association:
+        association = UserBookAssociation(
+            user_id=user_db.id,
+            book_id=data.book_id,
+            status=BookReadStatus.READING,
+            last_read_page=0,
+        )
+
+        session.add(association)
+        await session.flush()
+
+    cycle = await get_or_create_first_reading_cycle(
+        session=session,
+        user_id=user_db.id,
+        book_id=data.book_id,
+    )
     current_page = data.end_page if data.end_page is not None else data.start_page
 
     if association:
@@ -230,6 +297,7 @@ async def create_reading_session(
 
     reading_session_data = data.model_dump(exclude={"user", "book", "username"})
     reading_session_data["user_id"] = user_db.id
+    reading_session_data["reading_cycle_id"] = cycle.id
     reading_session = ReadingSession(**reading_session_data)
 
     session.add(reading_session)
