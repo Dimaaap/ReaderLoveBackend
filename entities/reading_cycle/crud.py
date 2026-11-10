@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from core.models import ReadingCycle, ReadingSession, User, UserBookAssociation, Book
+from core.models import ReadingCycle, User, UserBookAssociation, Book
 from core.models.reading_cycle import ReadingCycleStatus
 from core.models.user_book_association import BookReadStatus, TrackingType
 

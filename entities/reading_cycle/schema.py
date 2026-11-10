@@ -36,9 +36,13 @@ class ReadingCycleSchema(ReadingCycleBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ReadingCycleWithStatsSchema(ReadingCycleSchema):
+    sessions_count: int = 0
+
+
 class ReadingCycleHistorySchema(BaseModel):
     book_id: int
     total_reads: int
-    cycles: list[ReadingCycleSchema]
+    cycles: list[ReadingCycleWithStatsSchema] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

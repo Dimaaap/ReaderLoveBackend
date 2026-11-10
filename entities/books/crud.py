@@ -34,6 +34,8 @@ from entities.books.schema import (
     ActiveReadingSessionSchema,
 )
 
+from entities.reading_sessions.crud import get_user_book_reading_cycles
+
 
 async def search_crud(statement, search):
     search = search.strip()
@@ -305,11 +307,17 @@ async def delete_user_book_status(
 
 
 async def get_book_by_slug_for_user_with_sessions_stats(
-    session: AsyncSession, book_slug: str, username: str, limit: int = 5
+    session: AsyncSession,
+    book_slug: str,
+    username: str,
+    limit: int = 5,
 ) -> BookSchemaWithSessions | None:
+
     logger.info(
-        f"Try to get book {book_slug} with reading sessions for user {username} with limit={limit}"
+        f"Try to get book {book_slug} with reading sessions "
+        f"for user {username} with limit={limit}"
     )
+
     book_statement = (
         select(Book)
         .where(Book.slug == book_slug)
@@ -319,13 +327,12 @@ async def get_book_by_slug_for_user_with_sessions_stats(
             selectinload(Book.reviews),
         )
     )
+
     book_result = await session.execute(book_statement)
     book = book_result.scalar_one_or_none()
 
     if not book:
-        logger.error(
-            f"Failed to get book {book_slug} with reading sessions for user {username} with limit={limit}"
-        )
+        logger.error(f"Book {book_slug} was not found")
         return None
 
     user_stmt = (
@@ -342,29 +349,57 @@ async def get_book_by_slug_for_user_with_sessions_stats(
         )
         .where(User.username == username)
     )
+
     user_result = await session.execute(user_stmt)
     user_row = user_result.first()
 
-    if not user_row or not user_row.id:
+    if not user_row or user_row.id is None:
+
         book_data = BookSchema.model_validate(book).model_dump()
-        return BookSchemaWithSessions(**book_data)
+
+        book_data.update(
+            {
+                "reading_cycle_history": None,
+                "reading_sessions_count": 0,
+                "read_pages": 0,
+                "last_read_percent": 0.0,
+                "tracking_type": TrackingType.PAGES,
+                "weekly_read_pages": 0,
+                "active_session_id": None,
+                "active_session": None,
+                "recent_sessions": [],
+                "current_streak": 0,
+            }
+        )
+
+        return BookSchemaWithSessions.model_validate(book_data)
 
     user_id, assoc_last_read_page, assoc_last_read_percent, tracking_type = user_row
 
+    reading_cycle_history = await get_user_book_reading_cycles(
+        session=session,
+        username=username,
+        book_id=book.id,
+    )
+
     latest_session_stmt = (
         select(ReadingSession.end_page)
-        .where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
+        .where(
+            ReadingSession.book_id == book.id,
+            ReadingSession.user_id == user_id,
+        )
         .order_by(desc(ReadingSession.started_at))
         .limit(1)
     )
+
     latest_session_result = await session.execute(latest_session_stmt)
     latest_end_page = latest_session_result.scalar_one_or_none()
 
     read_pages = (
         latest_end_page if latest_end_page is not None else (assoc_last_read_page or 0)
     )
+
     last_read_percent = assoc_last_read_percent or 0.0
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
     active_session_statement = (
         select(ReadingSession)
@@ -373,6 +408,7 @@ async def get_book_by_slug_for_user_with_sessions_stats(
             ReadingSession.user_id == user_id,
             ReadingSession.ended_at.is_(None),
         )
+        .order_by(desc(ReadingSession.started_at))
         .limit(1)
     )
 
@@ -380,6 +416,7 @@ async def get_book_by_slug_for_user_with_sessions_stats(
     active_session = active_session_result.scalar_one_or_none()
 
     active_reading_session_data = None
+
     if active_session:
         active_reading_session_data = ActiveReadingSessionSchema(
             id=active_session.id,
@@ -387,6 +424,9 @@ async def get_book_by_slug_for_user_with_sessions_stats(
             net_duration_seconds=active_session.net_duration_seconds,
             is_paused=active_session.is_paused,
         )
+
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
     stats_statement = select(
         func.count(ReadingSession.id).label("sessions_count"),
         func.coalesce(
@@ -402,17 +442,24 @@ async def get_book_by_slug_for_user_with_sessions_stats(
             ),
             0,
         ).label("weekly_pages"),
-    ).where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
+    ).where(
+        ReadingSession.book_id == book.id,
+        ReadingSession.user_id == user_id,
+    )
 
     stats_result = await session.execute(stats_statement)
     stats = stats_result.one()
 
     recent_session_statement = (
         select(ReadingSession)
-        .where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
+        .where(
+            ReadingSession.book_id == book.id,
+            ReadingSession.user_id == user_id,
+        )
         .order_by(desc(ReadingSession.started_at))
         .limit(limit)
     )
+
     recent_sessions_result = await session.execute(recent_session_statement)
     db_recent_sessions = recent_sessions_result.scalars().all()
 
@@ -422,15 +469,21 @@ async def get_book_by_slug_for_user_with_sessions_stats(
 
     dates_statement = (
         select(cast(ReadingSession.started_at, Date))
-        .where(ReadingSession.book_id == book.id, ReadingSession.user_id == user_id)
+        .where(
+            ReadingSession.book_id == book.id,
+            ReadingSession.user_id == user_id,
+        )
         .distinct()
         .order_by(desc(cast(ReadingSession.started_at, Date)))
     )
+
     dates_result = await session.execute(dates_statement)
     reading_dates = dates_result.scalars().all()
+
     current_streak = calculate_streak(reading_dates)
 
     book_base_data = BookSchema.model_validate(book).model_dump()
+
     book_base_data.update(
         {
             "reading_sessions_count": stats.sessions_count,
@@ -442,6 +495,7 @@ async def get_book_by_slug_for_user_with_sessions_stats(
             "active_session": active_reading_session_data,
             "recent_sessions": recent_sessions,
             "current_streak": current_streak,
+            "reading_cycle_history": reading_cycle_history,
         }
     )
 
@@ -709,6 +763,8 @@ async def get_book_by_slug_for_user(
     sessions_count = 0
     active_session_id = None
     active_session_data = None
+    reading_cycle_history = None
+
     last_read_page = 0
     last_read_percent = 0.0
     tracking_type = TrackingType.PAGES
@@ -753,6 +809,10 @@ async def get_book_by_slug_for_user(
                 is_paused=active_session.is_paused,
             )
 
+        reading_cycle_history = await get_user_book_reading_cycles(
+            session=session, username=username, book_id=book.id
+        )
+
     book_detail = BookDetailSchema.model_validate(book)
 
     book_detail.reviews_count = len(book.reviews)
@@ -773,6 +833,7 @@ async def get_book_by_slug_for_user(
     book_detail.status = read_status
     book_detail.custom_image_link = custom_image_link
     book_detail.cover_color = cover_color
+    book_detail.reading_cycle_history = reading_cycle_history
 
     return book_detail
 

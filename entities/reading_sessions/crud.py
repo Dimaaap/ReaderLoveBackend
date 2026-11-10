@@ -25,6 +25,11 @@ from entities.reading_sessions.schema import (
     BookInSessionSchema,
     UserInSessionSchema,
 )
+from entities.reading_cycle.schema import (
+    ReadingCycleSchema,
+    ReadingCycleWithStatsSchema,
+    ReadingCycleHistorySchema,
+)
 
 
 async def get_or_create_first_reading_cycle(
@@ -43,12 +48,12 @@ async def get_or_create_first_reading_cycle(
     if active_cycle:
         return active_cycle
 
-    max_number_statement = select(func.max(ReadingCycle.read_number)).where(
+    max_read_number_statement = select(func.max(ReadingCycle.read_number)).where(
         ReadingCycle.user_id == user_id,
         ReadingCycle.book_id == book_id,
     )
 
-    result = await session.execute(max_number_statement)
+    result = await session.execute(max_read_number_statement)
     last_read_number = result.scalar_one() or 0
 
     if last_read_number > 0:
@@ -57,17 +62,19 @@ async def get_or_create_first_reading_cycle(
             detail="Book has already been read. Use reread endpoint to start a new cycle.",
         )
 
-    cycle = ReadingCycle(
+    first_cycle = ReadingCycle(
         user_id=user_id,
         book_id=book_id,
         read_number=1,
         status=ReadingCycleStatus.IN_PROGRESS,
     )
 
-    session.add(cycle)
+    session.add(first_cycle)
     await session.flush()
 
-    return cycle
+    logger.info(f"Created first reading cycle for user {user_id}, book {book_id}")
+
+    return first_cycle
 
 
 def map_session_to_schema(
@@ -222,88 +229,132 @@ async def get_reading_session_by_id(
     return result.scalar_one_or_none()
 
 
+async def get_user_book_reading_cycles(
+    session: AsyncSession, username: str, book_id: int
+) -> ReadingCycleHistorySchema:
+
+    user_id = await get_user_id_by_username(session, username)
+
+    statement = (
+        select(ReadingCycle, func.count(ReadingSession.id).label("sessions_count"))
+        .outerjoin(ReadingSession, ReadingSession.reading_cycle_id == ReadingCycle.id)
+        .where(ReadingCycle.user_id == user_id, ReadingCycle.book_id == book_id)
+        .group_by(ReadingCycle.id)
+        .order_by(ReadingCycle.read_number.desc())
+    )
+
+    result = await session.execute(statement)
+    rows = result.all()
+
+    cycles = []
+
+    for cycle, sessions_count in rows:
+        cycle_data = ReadingCycleSchema.model_validate(cycle).model_dump()
+
+        cycles.append(
+            ReadingCycleWithStatsSchema(**cycle_data, sessions_count=sessions_count)
+        )
+
+    return ReadingCycleHistorySchema(
+        book_id=book_id,
+        total_reads=len(cycles),
+        cycles=cycles,
+    )
+
+
 async def create_reading_session(
-    session: AsyncSession, data: ReadingSessionCreate
+    session: AsyncSession,
+    data: ReadingSessionCreate,
 ) -> ReadingSession:
 
     logger.info(f"Try to create new reading session with data {data}")
-    user = select(User).where(User.username == data.username)
-    result = await session.execute(user)
+
+    user_stmt = select(User).where(User.username == data.username)
+
+    result = await session.execute(user_stmt)
     user_db = result.scalar_one_or_none()
 
     if not user_db:
-        logger.error(
-            f"Failed to get user with username {data.username} - user was not found in db"
-        )
+        logger.error(f"Failed to get user with username {data.username}")
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"user with username {data.username} was not found",
+            detail=f"User with username {data.username} was not found",
         )
 
-    association_statement = (
-        select(UserBookAssociation)
-        .options(joinedload(UserBookAssociation.book))
-        .where(
-            UserBookAssociation.user_id == user_db.id,
-            UserBookAssociation.book_id == data.book_id,
+    book_stmt = select(Book).where(Book.id == data.book_id)
+
+    result = await session.execute(book_stmt)
+    book = result.scalar_one_or_none()
+
+    if not book:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Book was not found",
         )
+
+    association_stmt = select(UserBookAssociation).where(
+        UserBookAssociation.user_id == user_db.id,
+        UserBookAssociation.book_id == data.book_id,
     )
-    association_result = await session.execute(association_statement)
-    association = association_result.scalar_one_or_none()
 
-    if not association:
+    result = await session.execute(association_stmt)
+    association = result.scalar_one_or_none()
+
+    current_page = data.end_page if data.end_page is not None else data.start_page
+
+    if association is None:
         association = UserBookAssociation(
             user_id=user_db.id,
             book_id=data.book_id,
             status=BookReadStatus.READING,
-            last_read_page=0,
+            last_read_page=current_page or 0,
         )
 
         session.add(association)
         await session.flush()
+
+        logger.info(
+            f"Created UserBookAssociation for user {user_db.id}, book {data.book_id}"
+        )
+
+    else:
+        logger.info(
+            f"Found existing UserBookAssociation for user {user_db.id}, book {data.book_id}"
+        )
+
+        association.status = BookReadStatus.READING
+
+        if current_page is not None and current_page > association.last_read_page:
+            association.last_read_page = current_page
 
     cycle = await get_or_create_first_reading_cycle(
         session=session,
         user_id=user_db.id,
         book_id=data.book_id,
     )
-    current_page = data.end_page if data.end_page is not None else data.start_page
 
-    if association:
-        logger.info(f"Reading session for user {data.username} already exists")
-        if (
-            association.status != BookReadStatus.READING
-            and association.status != BookReadStatus.FINISHED
-        ):
-            association.status = BookReadStatus.READING
+    logger.info(f"Using reading cycle {cycle.id} (read_number={cycle.read_number})")
 
-        if current_page > association.last_read_page:
-            logger.info(f"Set new current page {association.last_read_page}")
-            association.last_read_page = current_page
-
-            if association.book and current_page >= association.book.pages_count:
-                logger.info("Set book status as finished")
-                association.status = BookReadStatus.FINISHED
-
-    else:
-        logger.info("Create new reading session")
-        association = UserBookAssociation(
-            user_id=user_db.id,
-            book_id=data.book_id,
-            status=BookReadStatus.READING,
-            last_read_page=current_page,
-        )
-        session.add(association)
+    if association.last_read_page >= book.pages_count and book.pages_count > 0:
+        association.status = BookReadStatus.FINISHED
 
     reading_session_data = data.model_dump(exclude={"user", "book", "username"})
+
     reading_session_data["user_id"] = user_db.id
     reading_session_data["reading_cycle_id"] = cycle.id
+
     reading_session = ReadingSession(**reading_session_data)
 
     session.add(reading_session)
+
     await session.commit()
 
-    full_session_statement = (
+    logger.info(
+        f"Created reading session {reading_session.id} " f"for cycle {cycle.id}"
+    )
+
+    full_session_stmt = (
         select(ReadingSession)
         .where(ReadingSession.id == reading_session.id)
         .options(
@@ -312,8 +363,10 @@ async def create_reading_session(
             selectinload(ReadingSession.reactions),
         )
     )
-    full_session_result = await session.execute(full_session_statement)
-    return full_session_result.scalar_one()
+
+    result = await session.execute(full_session_stmt)
+
+    return result.scalar_one()
 
 
 async def pause_reading_session(

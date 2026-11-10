@@ -7,6 +7,7 @@ from core.models.user_book_association import BookReadStatus, TrackingType
 from entities.book_authors.schema import BookAuthorsSchema
 from entities.book_genres.schema import BookGenreSchema
 from entities.book_reviews.schema import BookReviewSchema
+from entities.reading_cycle.schema import ReadingCycleHistorySchema
 
 
 class BookBase(BaseModel):
@@ -104,6 +105,8 @@ class BookDetailSchema(BookSchema):
     custom_image_link: str | None = None
     cover_color: str | None = None
 
+    reading_cycle_history: ReadingCycleHistorySchema | None = None
+
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
@@ -135,6 +138,8 @@ class BookSchemaWithSessions(BookDetailSchema):
     weekly_read_pages: int = 0
     recent_sessions: list[MiniReadingSessionSchema] = []
     current_streak: int = 0
+
+    reading_cycle_history: ReadingCycleHistorySchema | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
