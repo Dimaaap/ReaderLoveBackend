@@ -368,3 +368,45 @@ async def complete_reading_cycle(
     logger.info(f"Completed reading cycle {cycle.id}")
 
     return cycle
+
+
+async def delete_reading_cycle(session: AsyncSession, cycle: ReadingCycle) -> None:
+    logger.info(f"Try to delete reading cycle {cycle.id}")
+
+    association = await get_user_book_association(
+        session=session, user_id=cycle.user_id, book_id=cycle.book_id
+    )
+
+    if not association:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User book association not found",
+        )
+
+    if cycle.status == ReadingCycleStatus.IN_PROGRESS:
+        previous_cycle_result = await session.execute(
+            select(ReadingCycle)
+            .where(
+                ReadingCycle.user_id == cycle.user_id,
+                ReadingCycle.book_id == cycle.book_id,
+                ReadingCycle.id != cycle.id,
+                ReadingCycle.status == ReadingCycleStatus.COMPLETED,
+            )
+            .order_by(ReadingCycle.read_number.desc())
+            .limit(1)
+        )
+
+        previous_cycle = previous_cycle_result.scalar_one_or_none()
+
+        if previous_cycle:
+            association.status = BookReadStatus.FINISHED
+            association.last_read_page = previous_cycle.last_read_page
+            association.last_read_percent = previous_cycle.last_read_percent
+        else:
+            association.status = BookReadStatus.WANT_TO_READ
+            association.last_read_page = 0
+            association.last_read_percent = 0
+
+    await session.delete(cycle)
+
+    logger.info(f"Deleted reading cycle {cycle.id}")

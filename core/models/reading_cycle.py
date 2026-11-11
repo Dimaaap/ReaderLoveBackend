@@ -72,6 +72,18 @@ class ReadingCycle(Base):
         nullable=True,
     )
 
+    user_book: Mapped["UserBookAssociation"] = relationship(
+        "UserBookAssociation",
+        back_populates="reading_cycles",
+    )
+
+    sessions: Mapped[list["ReadingSession"]] = relationship(
+        "ReadingSession",
+        back_populates="reading_cycle",
+        cascade="all, delete-orphan",
+        passive_deletes=True
+    )
+
     __table_args__ = (
         ForeignKeyConstraint(
             ["user_id", "book_id"],
@@ -94,16 +106,6 @@ class ReadingCycle(Base):
             unique=True,
             postgresql_where=text("status = 'in_progress'"),
         ),
-    )
-
-    user_book: Mapped["UserBookAssociation"] = relationship(
-        "UserBookAssociation",
-        back_populates="reading_cycles",
-    )
-
-    sessions: Mapped[list["ReadingSession"]] = relationship(
-        "ReadingSession",
-        back_populates="reading_cycle",
     )
 
     def __str__(self):

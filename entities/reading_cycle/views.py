@@ -174,3 +174,22 @@ async def complete_reading_cycle(
     await session.refresh(cycle)
 
     return cycle
+
+
+@router.delete("/{username}/{cycle_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_reading_cycle(
+    username: str,
+    cycle_id: int,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    cycle = await crud.get_reading_cycle_by_id(session, username, cycle_id)
+
+    if not cycle:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Reading cycle not found"
+        )
+
+    await crud.delete_reading_cycle(session, cycle)
+
+    await session.commit()
+    return None
