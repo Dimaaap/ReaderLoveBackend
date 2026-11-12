@@ -195,7 +195,9 @@ async def reread_book(
             detail="User not found",
         )
 
-    association = await get_user_book_association(session, username, book_id, lock=True)
+    association = await get_user_book_association(
+        session, user_id=user.id, book_id=book_id, lock=True
+    )
 
     if not association:
         raise HTTPException(
@@ -216,6 +218,7 @@ async def reread_book(
         .where(ReadingCycle.user_id == user.id, ReadingCycle.book_id == book_id)
         .order_by(ReadingCycle.read_number.desc())
         .limit(1)
+        .with_for_update()
     )
 
     last_cycle = last_cycle_result.scalar_one_or_none()
@@ -246,8 +249,6 @@ async def reread_book(
     association.last_read_percent = 0.0
 
     session.add(new_cycle)
-    await session.commit()
-    await session.refresh(new_cycle)
 
     logger.info(f"Created rereading cycle {new_cycle.id}")
 

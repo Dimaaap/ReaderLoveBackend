@@ -2,11 +2,12 @@ from typing import TYPE_CHECKING
 
 from .base import Base
 
-from sqlalchemy import String, UniqueConstraint
+from sqlalchemy import String, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from .books import Book
+    from .countries import Country
 
 
 class BookAuthors(Base):
@@ -29,6 +30,11 @@ class BookAuthors(Base):
     books: Mapped[list["Book"]] = relationship(
         secondary="author_book_association", back_populates="authors"
     )
+
+    country_id: Mapped[int | None] = mapped_column(
+        ForeignKey("countries.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    country: Mapped[Country | None] = relationship(back_populates="authors")
 
     def __str__(self):
         return f"{self.__class__.__name__}(first_name={self.first_name}, last_name={self.last_name})"
