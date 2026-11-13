@@ -34,7 +34,7 @@ class BookAuthors(Base):
     country_id: Mapped[int | None] = mapped_column(
         ForeignKey("countries.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    country: Mapped[Country | None] = relationship(back_populates="authors")
+    country: Mapped["Country | None"] = relationship(back_populates="authors")
 
     def __str__(self):
         return f"{self.__class__.__name__}(first_name={self.first_name}, last_name={self.last_name})"

@@ -15,6 +15,7 @@ class Country(Base):
     name: Mapped[str] = mapped_column(
         String(100), nullable=False, unique=True, index=True
     )
+    name_uk: Mapped[str] = mapped_column(String(100), nullable=True, index=True)
 
     code: Mapped[str] = mapped_column(
         String(2), nullable=False, unique=True, index=True

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class CountryBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
+    name_uk: str = Field(..., min_length=1, max_length=100)
     code: str = Field(..., min_length=2, max_length=2)
     flag: Optional[str] = Field(None, max_length=10)
 
@@ -19,6 +20,7 @@ class CountryUpdate(CountryBase):
 
 class CountryUpdatePartial(CountryUpdate):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
+    name_uk: Optional[str] = Field(None, min_length=1, max_length=100)
     code: Optional[str] = Field(None, min_length=2, max_length=2)
     flag: Optional[str] = Field(None, max_length=10)
 
