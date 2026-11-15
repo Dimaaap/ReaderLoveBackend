@@ -37,7 +37,6 @@ async def get_all(
     session: AsyncSession = Depends(db_helper.scoped_session_dependency),
 ):
     cache_key = f"book_authors:limit:{limit}:offset:{offset}"
-
     cached = await redis_client.get(cache_key)
 
     if cached:
