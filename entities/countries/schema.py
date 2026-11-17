@@ -31,6 +31,11 @@ class CountrySchema(CountryBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CountryGeographySchema(CountrySchema):
+    authors_count: int = 0
+    books_count: int = 0
+
+
 class CountrySummarySchema(CountryBase):
     id: int
     authors_count: int = 0

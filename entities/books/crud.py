@@ -65,7 +65,10 @@ async def get_all_books(
     logger.info(f"Try to get all books with params: search={search}, limit={limit}")
     statement = (
         select(Book)
-        .options(selectinload(Book.authors), selectinload(Book.genres))
+        .options(
+            selectinload(Book.authors).selectinload(BookAuthors.country),
+            selectinload(Book.genres),
+        )
         .order_by(Book.id)
     )
 
@@ -89,7 +92,7 @@ async def get_book_by_id_without_username(
         select(Book)
         .where(Book.id == book_id)
         .options(
-            selectinload(Book.authors),
+            selectinload(Book.authors).selectinload(BookAuthors.country),
             selectinload(Book.genres),
             selectinload(Book.publisher),
         )
@@ -113,7 +116,7 @@ async def get_book_by_id(
         select(Book)
         .where(Book.id == book_id)
         .options(
-            selectinload(Book.authors),
+            selectinload(Book.authors).selectinload(BookAuthors.country),
             selectinload(Book.genres),
             selectinload(Book.publisher),
             selectinload(Book.reviews),
@@ -199,7 +202,10 @@ async def get_book_by_slug(session: AsyncSession, book_slug: str) -> Book | None
     statement = (
         select(Book)
         .where(Book.slug == book_slug)
-        .options(selectinload(Book.authors), selectinload(Book.genres))
+        .options(
+            selectinload(Book.authors).selectinload(BookAuthors.country),
+            selectinload(Book.genres),
+        )
     )
 
     result = await session.execute(statement)
@@ -215,7 +221,7 @@ async def get_book_by_slug_for_user_with_status(
         select(Book)
         .where(Book.slug == book_slug)
         .options(
-            selectinload(Book.authors),
+            selectinload(Book.authors).selectinload(BookAuthors.country),
             selectinload(Book.genres),
             selectinload(Book.reviews).selectinload(BookReview.user),
         )
@@ -322,7 +328,7 @@ async def get_book_by_slug_for_user_with_sessions_stats(
         select(Book)
         .where(Book.slug == book_slug)
         .options(
-            selectinload(Book.authors),
+            selectinload(Book.authors).selectinload(BookAuthors.country),
             selectinload(Book.genres),
             selectinload(Book.reviews),
         )
@@ -656,7 +662,10 @@ async def get_user_library_for_export(
         .join(UserBookAssociation, Book.id == UserBookAssociation.book_id)
         .join(User, UserBookAssociation.user_id == User.id)
         .where(User.username == username)
-        .options(selectinload(Book.authors), selectinload(Book.genres))
+        .options(
+            selectinload(Book.authors).selectinload(BookAuthors.country),
+            selectinload(Book.genres),
+        )
     )
 
     status_map = {
@@ -721,7 +730,7 @@ async def get_book_by_slug_for_user(
         select(Book)
         .where(Book.slug == book_slug)
         .options(
-            selectinload(Book.authors),
+            selectinload(Book.authors).selectinload(BookAuthors.country),
             selectinload(Book.genres),
             selectinload(Book.publisher),
             selectinload(Book.reviews).options(selectinload(BookReview.user)),
@@ -906,7 +915,10 @@ async def get_similar_books(
     statement = (
         select(Book)
         .where(Book.id == book_id)
-        .options(selectinload(Book.genres), selectinload(Book.authors))
+        .options(
+            selectinload(Book.genres),
+            selectinload(Book.authors).selectinload(BookAuthors.country),
+        )
     )
 
     result = await session.execute(statement)
@@ -923,7 +935,7 @@ async def get_similar_books(
             select(Book)
             .where(Book.id != book_id)
             .options(
-                selectinload(Book.authors),
+                selectinload(Book.authors).selectinload(BookAuthors.country),
                 selectinload(Book.genres),
                 selectinload(Book.reviews),
             )
@@ -940,7 +952,7 @@ async def get_similar_books(
             .group_by(Book.id)
             .order_by(desc(genre_match_score), desc(Book.rating))
             .options(
-                selectinload(Book.authors),
+                selectinload(Book.authors).selectinload(BookAuthors.country),
                 selectinload(Book.genres),
                 selectinload(Book.reviews),
             )
@@ -1022,7 +1034,7 @@ async def create_book(session: AsyncSession, data: BookCreate) -> Book:
     statement = (
         select(Book)
         .options(
-            selectinload(Book.authors),
+            selectinload(Book.authors).selectinload(BookAuthors.country),
             selectinload(Book.genres),
             selectinload(Book.publisher),
         )
@@ -1092,7 +1104,10 @@ async def get_user_active_books_for_notes(
             ),
         )
         .where(User.username == username)
-        .options(selectinload(Book.authors), selectinload(Book.genres))
+        .options(
+            selectinload(Book.authors).selectinload(BookAuthors.country),
+            selectinload(Book.genres),
+        )
         .order_by(Book.title)
     )
 

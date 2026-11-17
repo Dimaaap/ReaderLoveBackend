@@ -1,16 +1,17 @@
 import asyncio
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
-from core.models import Country, db_helper
+from core.models import Country, db_helper, BookAuthors, Book, UserBookAssociation, User
 from .schema import (
     CountrySchema,
     CountryCreate,
     CountryUpdate,
     CountryUpdatePartial,
     CountrySummarySchema,
+    CountryGeographySchema,
 )
 
 
@@ -144,3 +145,38 @@ async def get_country_summary(
         **CountrySchema.model_validate(country).model_dump(),
         authors_count=authors_count,
     )
+
+
+async def get_user_reading_geography(
+    session: AsyncSession, username: str, book_status: str | None = None
+) -> list[CountryGeographySchema]:
+    statement = (
+        select(
+            Country,
+            func.count(distinct(BookAuthors.id)).label("authors_count"),
+            func.count(distinct(Book.id)).label("books_count"),
+        )
+        .select_from(UserBookAssociation)
+        .join(Book, UserBookAssociation.book_id == Book.id)
+        .join(Book.authors)
+        .join(Country, BookAuthors.country_id == Country.id)
+        .join(User, UserBookAssociation.user_id == User.id)
+        .where(User.username == username)
+        .group_by(Country.id)
+        .order_by(func.count(distinct(Book.id)).desc(), Country.name)
+    )
+
+    if book_status and book_status != "all":
+        statement = statement.where(UserBookAssociation.status == book_status)
+
+    result = await session.execute(statement)
+    rows = result.all()
+
+    return [
+        CountryGeographySchema(
+            **CountrySchema.model_validate(country).model_dump(),
+            authors_count=authors_count,
+            books_count=books_count,
+        )
+        for country, authors_count, books_count in rows
+    ]

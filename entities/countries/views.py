@@ -15,6 +15,7 @@ from .schema import (
     CountryUpdate,
     CountryUpdatePartial,
     CountrySummarySchema,
+    CountryGeographySchema,
 )
 
 router = APIRouter(tags=["Countries"])
@@ -103,6 +104,32 @@ async def get_country_summary_view(
     await redis_client.set(cache_key, json.dumps(result, ensure_ascii=False), ex=300)
 
     return result
+
+
+@router.get("/geography/{username}", response_model=list[CountryGeographySchema])
+async def get_user_reading_geography_view(
+    username: str,
+    book_status: str = Query(default="all"),
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    cache_key = f"countries:{username}:status:{book_status}"
+
+    cached = await redis_client.get(cache_key)
+
+    if cached:
+        logger.info(f"Get reading geography for {username} from Redis")
+        return json.loads(cached)
+
+    data = await crud.get_user_reading_geography(session, username, book_status)
+
+    serialized = [item.model_dump(mode="json") for item in data]
+
+    await redis_client.set(
+        cache_key, json.dumps(serialized, ensure_ascii=False), ex=300
+    )
+
+    logger.info(f"Get reading geography for {username}")
+    return data
 
 
 @router.get("/code/{country_code}", response_model=CountrySchema)
