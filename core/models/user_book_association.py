@@ -44,7 +44,6 @@ class UserBookAssociation(BaseWithoutId):
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
-
     book_id: Mapped[int] = mapped_column(
         ForeignKey("books.id", ondelete="CASCADE"), primary_key=True
     )
