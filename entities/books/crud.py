@@ -767,6 +767,7 @@ async def get_book_by_slug_for_user(
     result = await session.execute(user_assoc_stmt)
     user_row = result.first()
 
+    user_id = None
     custom_image_link = None
     cover_color = None
     sessions_count = 0
@@ -832,6 +833,17 @@ async def get_book_by_slug_for_user(
         )
     else:
         book_detail.rating = 0
+
+    user_review = (
+        max(
+            (review for review in book.reviews if review.user_id == user_id),
+            key=lambda review: review.created_at,
+            default=None,
+        )
+        if user_id
+        else None
+    )
+    book_detail.user_rating = user_review.rating if user_review else None
 
     book_detail.reading_sessions_count = sessions_count
     book_detail.read_pages = last_read_page or 0

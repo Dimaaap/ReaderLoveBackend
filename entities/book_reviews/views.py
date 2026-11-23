@@ -10,6 +10,7 @@ from entities.book_reviews.schema import (
     BookReviewCreate,
     BookReviewSchema,
     BookReviewUpdatePartial,
+    BookRatingCreate,
 )
 
 from core.models import Book
@@ -167,3 +168,37 @@ async def delete_book_review_by_id(
                 await redis_client.delete(f"book_reviews:book:{deleted_review.book_id}")
         except Exception:
             pass
+
+
+@router.put("/by-book-id/{book_id}/rating/{username}")
+async def set_book_rating(
+    book_id: int,
+    username: str,
+    data: BookRatingCreate,
+    session: AsyncSession = Depends(db_helper.scoped_session_dependency),
+):
+    review = await crud.set_book_rating(session, username, book_id, data.rating)
+
+    if not review:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User or book is not found"
+        )
+
+    await redis_client.delete("book_reviews:all")
+
+    review_keys = [
+        key async for key in redis_client.scan_iter(f"book_reviews:book:{book_id}:*")
+    ]
+
+    if review_keys:
+        await redis_client.delete(*review_keys)
+
+    book = await session.get(Book, book_id)
+
+    if book:
+        await redis_client.delete(f"books:{book.slug}")
+
+    return {
+        "message": "Rating successfully saved",
+        "rating": review.rating,
+    }

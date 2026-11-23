@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from core.models import BookReview, User
+from core.models import BookReview, User, Book
 from entities.book_reviews.schema import (
     BookReviewCreate,
     BookReviewSchema,
@@ -48,6 +48,43 @@ async def get_user_reviews(
     book_reviews = result.scalars().unique().all()
 
     return [BookReviewSchema.model_validate(review) for review in book_reviews]
+
+
+async def set_book_rating(
+    session: AsyncSession, username: str, book_id: int, rating: int
+) -> BookReview | None:
+    user = await session.scalar(select(User).where(User.username == username))
+
+    if not user:
+        return None
+
+    book = await session.get(Book, book_id)
+
+    if not book:
+        return None
+
+    review = await session.scalar(
+        select(BookReview).where(
+            BookReview.user_id == user.id,
+            BookReview.book_id == book_id,
+        )
+    )
+
+    if review is None:
+        review = BookReview(
+            user_id=user.id,
+            book_id=book_id,
+            rating=rating,
+            text=None,
+            is_spoiler=False,
+        )
+        session.add(review)
+    else:
+        review.rating = rating
+
+    await session.flush()
+    await session.commit()
+    return review
 
 
 async def get_book_reviews(

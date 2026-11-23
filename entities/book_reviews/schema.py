@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class BookReviewBase(BaseModel):
@@ -27,8 +27,6 @@ class BookReviewUpdate(BookReviewBase): ...
 
 class BookReviewUpdatePartial(BookReviewUpdate):
     rating: int | None = None
-    book_id: int | None = None
-    user_id: int | None = None
 
 
 class BookBookReviewSchema(BaseModel):
@@ -45,6 +43,10 @@ class UserBookReviewSchema(BaseModel):
     email: EmailStr
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BookRatingCreate(BaseModel):
+    rating: int = Field(ge=1, le=5)
 
 
 class BookReviewSchema(BaseModel):

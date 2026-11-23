@@ -93,6 +93,7 @@ class BookDetailSchema(BookSchema):
     reviews: list[BookReviewSchema] = []
     reading_sessions_count: int = 0
     rating: float | None = None
+    user_rating: int | None = None
     read_pages: int = Field(default=0, alias="last_read_page")
 
     tracking_type: TrackingType = TrackingType.PAGES
