@@ -31,6 +31,9 @@ __all__ = (
     "BookCollection",
     "BookCollectionAssociation",
     "Country",
+    "StreakFreezeDay",
+    "StreakMilestone",
+    "ReadingStreak",
 )
 
 from .base import Base
@@ -66,3 +69,6 @@ from .book_collection import BookCollection
 from .book_collection_association import BookCollectionAssociation
 from .reading_cycle import ReadingCycle
 from .countries import Country
+from .streak_freeze_days import StreakFreezeDay
+from .reading_streak_state import ReadingStreak
+from .streak_milestone import StreakMilestone

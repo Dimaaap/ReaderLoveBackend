@@ -19,6 +19,7 @@ from .base import Base
 if TYPE_CHECKING:
     from .users import User
     from .streak_freeze_days import StreakFreezeDay
+    from .streak_milestone import StreakMilestone
 
 
 class StreakGoalType(str, Enum):
@@ -36,7 +37,7 @@ class ReadingStreak(Base):
     __tablename__ = "reading_streaks"
 
     user_id: Mapped[str] = mapped_column(
-        String(int(os.getenv("NANOID_KEY_SIZE"))),
+        String(int(os.getenv("NANOID_KEY_SIZE", 21))),
         ForeignKey("users.id", ondelete="CASCADE"),
         unique=True,
         nullable=False,
@@ -90,5 +91,5 @@ class ReadingStreak(Base):
     def __str__(self) -> str:
         return (
             f"{self.__class__.__name__}"
-            f"(user_id={self.user_id}), current_streak={self.current_streak}, best_streak={self.best_streak}"
+            f"(user_id={self.user_id}, current_streak={self.current_streak}, best_streak={self.best_streak})"
         )

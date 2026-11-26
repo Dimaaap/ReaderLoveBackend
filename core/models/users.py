@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .user_challenge import UserChallenge
     from .challenge import Challenge
     from .book_collection import BookCollection
+    from .reading_streak_state import ReadingStreak
 
 
 class UserRole(str, Enum):
@@ -156,6 +157,13 @@ class User(Base):
 
     book_collections: Mapped[list["BookCollection"]] = relationship(
         "BookCollection", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    reading_streak: Mapped["ReadingStreak"] = relationship(
+        "ReadingStreak",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     def __str__(self) -> str:

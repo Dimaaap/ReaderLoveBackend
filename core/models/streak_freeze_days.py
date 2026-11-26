@@ -1,5 +1,4 @@
 from datetime import date, datetime
-from enum import Enum
 import os
 
 from typing import TYPE_CHECKING
@@ -16,15 +15,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
+from .reading_streak_state import StreakFreezeSource
 
 if TYPE_CHECKING:
     from .reading_streak_state import ReadingStreak
-
-
-class StreakFreezeSource(str, Enum):
-    AUTOMATIC = "automatic"
-    MANUAL = "manual"
-    REWARD = "reward"
 
 
 class StreakFreezeDay(Base):

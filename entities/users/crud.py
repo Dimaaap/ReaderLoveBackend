@@ -21,6 +21,7 @@ from core.models import (
     UserBookAssociation,
     UserFriends,
     ReadingSession,
+    ReadingStreak,
 )
 
 
@@ -33,7 +34,11 @@ async def get_user_by_email(session: AsyncSession, email: str) -> User:
 async def get_user_by_id(session: AsyncSession, id: str) -> User:
     statement = (
         select(User)
-        .options(selectinload(User.settings), selectinload(User.following))
+        .options(
+            selectinload(User.settings),
+            selectinload(User.following),
+            selectinload(User.reading_streak),
+        )
         .where(
             User.id == id,
         )
@@ -50,6 +55,7 @@ async def get_user_by_username(
         .options(
             selectinload(User.settings),
             selectinload(User.following),
+            selectinload(User.reading_streak),
             selectinload(User.user_books)
             .selectinload(UserBookAssociation.book)
             .options(
@@ -356,6 +362,7 @@ async def create_user(session: AsyncSession, user_data: CreateUser) -> User:
     user = User(**user_data.model_dump())
 
     user.settings = UserSettings()
+    user.reading_streak = ReadingStreak()
     try:
         session.add(user)
         await session.commit()

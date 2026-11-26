@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from core.models.users import UserRole, RegisterWays, AvatarColors
 from entities.books.schema import UserBookItemSchema
+from entities.reading_streaks.schema import ReadingStreakSchema
 from entities.user_settings.schema import UserSettingsSchema
 from utils.custom_validators.nanoid_string_validator import NanoIDString
 
@@ -38,6 +39,7 @@ class UserSchema(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
     settings: UserSettingsSchema
+    reading_streak: ReadingStreakSchema | None = None
 
     id: NanoIDString
 
@@ -109,6 +111,7 @@ class UserByUsernameSchema(BaseModel):
     avatar_color: AvatarColors | None = None
     role: UserRole
     settings: UserSettingsSchema
+    reading_streak: ReadingStreakSchema | None = None
 
     user_books: list[UserBookItemSchema]
     friends: list = []
