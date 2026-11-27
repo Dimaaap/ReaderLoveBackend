@@ -23,7 +23,7 @@ async def get_milestone_by_id(
 
 
 async def get_user_milestones(
-    session: AsyncSession, user_id: int, only_uncelebrated: bool = False
+    session: AsyncSession, user_id: str, only_uncelebrated: bool = False
 ) -> list[StreakMilestone]:
     statement = (
         select(StreakMilestone)

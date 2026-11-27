@@ -23,7 +23,6 @@ from core.redis_config import redis_client
 from entities.users.schema import (
     SignupRequest,
     VerifyOTPRequest,
-    LoginSchema,
     ForgotPasswordRequest,
     ResetPasswordRequest,
     UpdateUserPartial,
