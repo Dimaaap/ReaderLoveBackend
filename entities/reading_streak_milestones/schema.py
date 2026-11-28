@@ -13,7 +13,7 @@ class StreakMilestoneBase(BaseModel):
 
 
 class StreakMilestoneCreate(StreakMilestoneBase):
-    user_id: NanoIDString
+    user_id: NanoIDString | str
     streak_id: int = Field(..., ge=1)
 
 

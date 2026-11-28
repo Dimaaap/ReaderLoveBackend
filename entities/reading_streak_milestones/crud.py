@@ -109,7 +109,7 @@ async def get_or_create_milestone(
 async def update_milestone(
     session: AsyncSession,
     milestone: StreakMilestone,
-    milestone_update: StreakMilestoneUpdate | StreakMilestoneUpdate,
+    milestone_update: StreakMilestoneUpdate | StreakMilestoneUpdatePartial,
     partial: bool = False,
 ) -> StreakMilestone:
     update_data = milestone_update.model_dump(exclude_unset=partial)
